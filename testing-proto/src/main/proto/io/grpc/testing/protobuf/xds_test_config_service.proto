@@ -20,6 +20,7 @@ syntax = "proto3";
 package grpc.testing;
 
 option java_package = "io.grpc.testing.protobuf";
+option java_outer_classname = "XdsTestConfigServiceProto";
 option java_multiple_files = true;
 
 import "google/protobuf/any.proto";
@@ -42,8 +43,8 @@ message XdsConfig {
     string name = 1;
     google.protobuf.Any configuration = 2;
   }
-  // An optional string message for test.
-  string type = 1;
+
+  XdsResourceType type = 1;
   repeated Resource configuration = 2;
 }
 
@@ -72,20 +73,21 @@ enum TriggerTime{
   AFTER_ENDPOINTS = 4;
 }
 
-enum ExtraResourceChoice{
+enum ExtraResourceChoice {
   EXTRA_ONLY = 0; // Only extra, not the ones requested
   ALL_REQ = 1;   // All requested plus the extra
   SOME_REQ = 2;  //replace as many required as there are extra so total number is what was expected
 }
 
-enum ResourceType{
+// TODO change this to XdsResourceType
+enum XdsResourceType {
   LDS = 0;
   CDS = 1;
   RDS = 2;
   EDS = 3;
 }
 
-enum AberationType {
+enum AberrationType {
   STATUS_CODE = 0;
   SEND_EXTRA = 1;
   SEND_EMPTY = 2;
@@ -96,7 +98,8 @@ enum AberationType {
 
 message ControlData {
   TriggerTime trigger_aberration = 1;
-  AberationType aberration_type = 2;
+  AberrationType aberration_type = 2;
   int32 status_code = 3;
-  repeated ResourceType affected_types = 4;
+  repeated XdsResourceType affected_types = 4;
+  repeated string names_to_skip = 5;
 }

@@ -33,11 +33,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-final class XdsTestControlPlaneService extends
+class XdsTestControlPlaneService extends
     AggregatedDiscoveryServiceGrpc.AggregatedDiscoveryServiceImplBase {
   private static final Logger logger = Logger.getLogger(XdsTestControlPlaneService.class.getName());
 
-  private final SynchronizationContext syncContext = new SynchronizationContext(
+  protected final SynchronizationContext syncContext = new SynchronizationContext(
       new Thread.UncaughtExceptionHandler() {
         @Override
         public void uncaughtException(Thread t, Throwable e) {
@@ -54,13 +54,31 @@ final class XdsTestControlPlaneService extends
   static final String ADS_TYPE_URL_EDS =
       "type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment";
 
+  public ImmutableMap<String, HashMap<StreamObserver<DiscoveryResponse>, Set<String>>>
+  getSubscribers() {
+    return ImmutableMap.copyOf(subscribers);
+  }
+
+  public ImmutableMap<String, AtomicInteger> getXdsVersions() {
+    return ImmutableMap.copyOf(xdsVersions);
+  }
+
+  public ImmutableMap<String, HashMap<StreamObserver<DiscoveryResponse>, AtomicInteger>>
+  getXdsNonces() {
+    return ImmutableMap.copyOf(xdsNonces);
+  }
+
+  public ImmutableMap<String, HashMap<String, Message>> getXdsResources() {
+    return ImmutableMap.copyOf(xdsResources);
+  }
+
   private final Map<String, HashMap<String, Message>> xdsResources = new HashMap<>();
   private ImmutableMap<String, HashMap<StreamObserver<DiscoveryResponse>, Set<String>>> subscribers
       = ImmutableMap.of(
-          ADS_TYPE_URL_LDS, new HashMap<StreamObserver<DiscoveryResponse>, Set<String>>(),
-          ADS_TYPE_URL_RDS, new HashMap<StreamObserver<DiscoveryResponse>, Set<String>>(),
-          ADS_TYPE_URL_CDS, new HashMap<StreamObserver<DiscoveryResponse>, Set<String>>(),
-          ADS_TYPE_URL_EDS, new HashMap<StreamObserver<DiscoveryResponse>, Set<String>>()
+          ADS_TYPE_URL_LDS, new HashMap<>(),
+          ADS_TYPE_URL_RDS, new HashMap<>(),
+          ADS_TYPE_URL_CDS, new HashMap<>(),
+          ADS_TYPE_URL_EDS, new HashMap<>()
           );
   private final ImmutableMap<String, AtomicInteger> xdsVersions = ImmutableMap.of(
       ADS_TYPE_URL_LDS, new AtomicInteger(1),
@@ -70,10 +88,10 @@ final class XdsTestControlPlaneService extends
   );
   private final ImmutableMap<String, HashMap<StreamObserver<DiscoveryResponse>, AtomicInteger>>
       xdsNonces = ImmutableMap.of(
-      ADS_TYPE_URL_LDS, new HashMap<StreamObserver<DiscoveryResponse>, AtomicInteger>(),
-      ADS_TYPE_URL_RDS, new HashMap<StreamObserver<DiscoveryResponse>, AtomicInteger>(),
-      ADS_TYPE_URL_CDS, new HashMap<StreamObserver<DiscoveryResponse>, AtomicInteger>(),
-      ADS_TYPE_URL_EDS, new HashMap<StreamObserver<DiscoveryResponse>, AtomicInteger>()
+      ADS_TYPE_URL_LDS, new HashMap<>(),
+      ADS_TYPE_URL_RDS, new HashMap<>(),
+      ADS_TYPE_URL_CDS, new HashMap<>(),
+      ADS_TYPE_URL_EDS, new HashMap<>()
   );
 
 
@@ -88,80 +106,24 @@ final class XdsTestControlPlaneService extends
         xdsResources.put(type, copyResources);
         String newVersionInfo = String.valueOf(xdsVersions.get(type).getAndDecrement());
 
-        for (Map.Entry<StreamObserver<DiscoveryResponse>, Set<String>> entry :
-            subscribers.get(type).entrySet()) {
-          DiscoveryResponse response = generateResponse(type, newVersionInfo,
-              String.valueOf(xdsNonces.get(type).get(entry.getKey()).incrementAndGet()),
-              entry.getValue());
-          entry.getKey().onNext(response);
-        }
+        notifySubscribers(newVersionInfo, type);
       }
     });
   }
 
-  @Override
-  public StreamObserver<DiscoveryRequest> streamAggregatedResources(
-      final StreamObserver<DiscoveryResponse> responseObserver) {
-    final StreamObserver<DiscoveryRequest> requestObserver =
-        new StreamObserver<DiscoveryRequest>() {
-      @Override
-      public void onNext(final DiscoveryRequest value) {
-        syncContext.execute(new Runnable() {
-          @Override
-          public void run() {
-            logger.log(Level.FINEST, "control plane received request {0}", value);
-            if (value.hasErrorDetail()) {
-              logger.log(Level.FINE, "control plane received nack resource {0}, error {1}",
-                  new Object[]{value.getResourceNamesList(), value.getErrorDetail()});
-              return;
-            }
-            String resourceType = value.getTypeUrl();
-            if (!value.getResponseNonce().isEmpty()
-                && !String.valueOf(xdsNonces.get(resourceType)).equals(value.getResponseNonce())) {
-              logger.log(Level.FINE, "Resource nonce does not match, ignore.");
-              return;
-            }
-            Set<String> requestedResourceNames = new HashSet<>(value.getResourceNamesList());
-            if (subscribers.get(resourceType).containsKey(responseObserver)
-                && subscribers.get(resourceType).get(responseObserver)
-                    .equals(requestedResourceNames)) {
-              logger.log(Level.FINEST, "control plane received ack for resource: {0}",
-                  value.getResourceNamesList());
-              return;
-            }
-            if (!xdsNonces.get(resourceType).containsKey(responseObserver)) {
-              xdsNonces.get(resourceType).put(responseObserver, new AtomicInteger(0));
-            }
-            DiscoveryResponse response = generateResponse(resourceType,
-                String.valueOf(xdsVersions.get(resourceType)),
-                String.valueOf(xdsNonces.get(resourceType).get(responseObserver)),
-                requestedResourceNames);
-            responseObserver.onNext(response);
-            subscribers.get(resourceType).put(responseObserver, requestedResourceNames);
-          }
-        });
-      }
-
-      @Override
-      public void onError(Throwable t) {
-        logger.log(Level.FINE, "Control plane error: {0} ", t);
-        onCompleted();
-      }
-
-      @Override
-      public void onCompleted() {
-        responseObserver.onCompleted();
-        for (String type : subscribers.keySet()) {
-          subscribers.get(type).remove(responseObserver);
-          xdsNonces.get(type).remove(responseObserver);
-        }
-      }
-    };
-    return requestObserver;
+  //must run in syncContext
+  protected void notifySubscribers(String newVersionInfo, String type) {
+    for (Map.Entry<StreamObserver<DiscoveryResponse>, Set<String>> entry :
+        subscribers.get(type).entrySet()) {
+      DiscoveryResponse response = generateResponse(type, newVersionInfo,
+          String.valueOf(xdsNonces.get(type).get(entry.getKey()).incrementAndGet()),
+          entry.getValue());
+      entry.getKey().onNext(response);
+    }
   }
 
   //must run in syncContext
-  private DiscoveryResponse generateResponse(String resourceType, String version, String nonce,
+  protected DiscoveryResponse generateResponse(String resourceType, String version, String nonce,
                                              Set<String> resourceNames) {
     DiscoveryResponse.Builder responseBuilder = DiscoveryResponse.newBuilder()
         .setTypeUrl(resourceType)
@@ -176,4 +138,70 @@ final class XdsTestControlPlaneService extends
     }
     return responseBuilder.build();
   }
+
+  @Override
+  public StreamObserver<DiscoveryRequest> streamAggregatedResources(
+      final StreamObserver<DiscoveryResponse> responseObserver) {
+    final StreamObserver<DiscoveryRequest> requestObserver =
+        new StreamObserver<DiscoveryRequest>() {
+          @Override
+          public void onNext(final DiscoveryRequest value) {
+            syncContext.execute(new Runnable() {
+              @Override
+              public void run() {
+                logger.log(Level.FINEST, "control plane received request {0}", value);
+                if (value.hasErrorDetail()) {
+                  logger.log(Level.FINE, "control plane received nack resource {0}, error {1}",
+                      new Object[]{value.getResourceNamesList(), value.getErrorDetail()});
+                  return;
+                }
+                String resourceType = value.getTypeUrl();
+                if (!value.getResponseNonce().isEmpty()
+                    && !String.valueOf(xdsNonces.get(resourceType)).equals(value.getResponseNonce())) {
+                  logger.log(Level.FINE, "Resource nonce does not match, ignore.");
+                  return;
+                }
+                Set<String> requestedResourceNames = new HashSet<>(value.getResourceNamesList());
+                if (subscribers.get(resourceType).containsKey(responseObserver)
+                    && subscribers.get(resourceType).get(responseObserver)
+                    .equals(requestedResourceNames)) {
+                  logger.log(Level.FINEST, "control plane received ack for resource: {0}",
+                      value.getResourceNamesList());
+                  return;
+                }
+                if (!xdsNonces.get(resourceType).containsKey(responseObserver)) {
+                  xdsNonces.get(resourceType).put(responseObserver, new AtomicInteger(0));
+                }
+                sendResponse(resourceType, requestedResourceNames, responseObserver);
+                subscribers.get(resourceType).put(responseObserver, requestedResourceNames);
+              }
+            });
+          }
+
+          @Override
+          public void onError(Throwable t) {
+            logger.log(Level.FINE, "Control plane error: {0} ", t);
+            onCompleted();
+          }
+
+          @Override
+          public void onCompleted() {
+            responseObserver.onCompleted();
+            for (String type : subscribers.keySet()) {
+              subscribers.get(type).remove(responseObserver);
+              xdsNonces.get(type).remove(responseObserver);
+            }
+          }
+        };
+    return requestObserver;
+  }
+
+  protected void sendResponse(String resourceType, Set<String> requestedResourceNames, StreamObserver<DiscoveryResponse> responseObserver) {
+    DiscoveryResponse response = generateResponse(resourceType,
+        String.valueOf(xdsVersions.get(resourceType)),
+        String.valueOf(xdsNonces.get(resourceType).get(responseObserver)),
+        requestedResourceNames);
+    responseObserver.onNext(response);
+  }
+
 }
