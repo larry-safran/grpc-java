@@ -94,6 +94,10 @@ class XdsTestControlPlaneService extends
       ADS_TYPE_URL_EDS, new HashMap<>()
   );
 
+  protected String getVersionForType(String resourceType) {
+    return xdsVersions.get(resourceType).toString();
+  }
+
 
   // treat all the resource types as state-of-the-world, send back all resources of a particular
   // type when any of them change.
@@ -123,8 +127,14 @@ class XdsTestControlPlaneService extends
   }
 
   //must run in syncContext
-  protected DiscoveryResponse generateResponse(String resourceType, String version, String nonce,
+  private DiscoveryResponse generateResponse(String resourceType, String version, String nonce,
                                              Set<String> resourceNames) {
+    DiscoveryResponse.Builder responseBuilder =
+        generateResponseBuilder(resourceType, version, nonce, resourceNames);
+    return responseBuilder.build();
+  }
+
+  protected DiscoveryResponse.Builder generateResponseBuilder(String resourceType, String version, String nonce, Set<String> resourceNames) {
     DiscoveryResponse.Builder responseBuilder = DiscoveryResponse.newBuilder()
         .setTypeUrl(resourceType)
         .setVersionInfo(version)
@@ -136,7 +146,7 @@ class XdsTestControlPlaneService extends
             resourceType));
       }
     }
-    return responseBuilder.build();
+    return responseBuilder;
   }
 
   @Override
