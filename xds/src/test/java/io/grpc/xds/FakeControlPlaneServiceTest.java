@@ -129,16 +129,7 @@ public class FakeControlPlaneServiceTest {
 
   // Tracking changes
   protected Queue<DiscoveryResponse> responses = new LinkedList<>();
-  protected Queue<XdsClient.LdsUpdate> ldsUpdateQueue = new LinkedList<>();
-  protected Queue<XdsClient.RdsUpdate> rdsUpdateQueue = new LinkedList<>();
-  protected Queue<XdsClient.CdsUpdate> cdsUpdateQueue = new LinkedList<>();
-  protected Queue<XdsClient.EdsUpdate> edsUpdateQueue = new LinkedList<>();
   protected Map<ResourceType, Queue<Status>> resourceErrorMap = new HashMap<>();
-  protected Map<ResourceType, Queue<String>> missingResourceMap = new HashMap<>();
-  private LdsWatcher ldsWatcher = new LdsWatcher();
-  private RdsWatcher rdsWatcher = new RdsWatcher();
-  private CdsWatcher cdsWatcher = new CdsWatcher();
-  private EdsWatcher edsWatcher = new EdsWatcher();
 
   /**
    * Start control plane server and get control plane port.
@@ -152,12 +143,8 @@ public class FakeControlPlaneServiceTest {
   }
 
   private void clearXdsClient() {
-    ldsUpdateQueue.clear();
-    rdsUpdateQueue.clear();
-    cdsUpdateQueue.clear();
-    edsUpdateQueue.clear();
-    this.missingResourceMap.clear();
-    this.resourceErrorMap.clear();
+    responses.clear();
+    resourceErrorMap.clear();
 
     wrapperService.clear(null);
   }
@@ -405,76 +392,4 @@ public class FakeControlPlaneServiceTest {
         .build();
   }
 
-  private class LdsWatcher implements XdsClient.LdsResourceWatcher {
-    @Override
-    public void onChanged(XdsClient.LdsUpdate update) {
-      ldsUpdateQueue.add(update);
-    }
-
-    @Override
-    public void onError(Status error) {
-      resourceErrorMap.computeIfAbsent(ResourceType.LDS, k -> new LinkedList<>())
-          .add(error);
-    }
-
-    @Override
-    public void onResourceDoesNotExist(String resourceName) {
-      Queue<String> missingResQueue = missingResourceMap.computeIfAbsent(ResourceType.LDS, k -> new LinkedList<>());
-      missingResQueue.add(resourceName);
-    }
-  }
-  private class RdsWatcher implements XdsClient.RdsResourceWatcher {
-    @Override
-    public void onChanged(XdsClient.RdsUpdate update) {
-      rdsUpdateQueue.add(update);
-    }
-
-    @Override
-    public void onError(Status error) {
-      resourceErrorMap.computeIfAbsent(ResourceType.RDS, k -> new LinkedList<>())
-          .add(error);
-    }
-
-    @Override
-    public void onResourceDoesNotExist(String resourceName) {
-      missingResourceMap.computeIfAbsent(ResourceType.RDS, k -> new LinkedList<>())
-          .add(resourceName);
-    }
-  }
-  private class CdsWatcher implements XdsClient.CdsResourceWatcher {
-    @Override
-    public void onChanged(XdsClient.CdsUpdate update) {
-      cdsUpdateQueue.add(update);
-    }
-
-    @Override
-    public void onError(Status error) {
-      resourceErrorMap.computeIfAbsent(ResourceType.CDS, k -> new LinkedList<>())
-          .add(error);
-    }
-
-    @Override
-    public void onResourceDoesNotExist(String resourceName) {
-      missingResourceMap.computeIfAbsent(ResourceType.CDS, k -> new LinkedList<>())
-          .add(resourceName);
-    }
-  }
-  private class EdsWatcher implements XdsClient.EdsResourceWatcher {
-    @Override
-    public void onChanged(XdsClient.EdsUpdate update) {
-      edsUpdateQueue.add(update);
-    }
-
-    @Override
-    public void onError(Status error) {
-      resourceErrorMap.computeIfAbsent(ResourceType.EDS, k -> new LinkedList<>())
-          .add(error);
-    }
-
-    @Override
-    public void onResourceDoesNotExist(String resourceName) {
-      missingResourceMap.computeIfAbsent(ResourceType.EDS,k ->  new LinkedList<>())
-          .add(resourceName);
-    }
-  }
 }
