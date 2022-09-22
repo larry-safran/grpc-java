@@ -171,10 +171,9 @@ class XdsTestControlPlaneService extends
                   logger.log(Level.FINE, "Resource nonce does not match, ignore.");
                   return;
                 }
-                Set<String> requestedResourceNames = new HashSet<>(value.getResourceNamesList());
+                Set<String> reqResources = new HashSet<>(value.getResourceNamesList());
                 if (subscribers.get(resourceType).containsKey(responseObserver)
-                    && subscribers.get(resourceType).get(responseObserver)
-                    .equals(requestedResourceNames)) {
+                    && subscribers.get(resourceType).get(responseObserver).equals(reqResources)) {
                   logger.log(Level.FINEST, "control plane received ack for resource: {0}",
                       value.getResourceNamesList());
                   return;
@@ -182,8 +181,8 @@ class XdsTestControlPlaneService extends
                 if (!xdsNonces.get(resourceType).containsKey(responseObserver)) {
                   xdsNonces.get(resourceType).put(responseObserver, new AtomicInteger(0));
                 }
-                sendResponse(resourceType, requestedResourceNames, responseObserver);
-                subscribers.get(resourceType).put(responseObserver, requestedResourceNames);
+                sendResponse(resourceType, reqResources, responseObserver);
+                subscribers.get(resourceType).put(responseObserver, reqResources);
               }
             });
           }
@@ -214,4 +213,8 @@ class XdsTestControlPlaneService extends
     responseObserver.onNext(response);
   }
 
+  protected void clearSubscribers() {
+    subscribers.values().forEach(m -> m.clear());
+    xdsNonces.values().forEach(m -> m.clear());
+  }
 }

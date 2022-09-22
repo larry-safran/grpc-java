@@ -24,6 +24,7 @@ option java_outer_classname = "XdsTestConfigServiceProto";
 option java_multiple_files = true;
 
 import "google/protobuf/any.proto";
+import "google/protobuf/empty.proto";
 
 // A service for configuring a fake xds server.
 service XdsTestConfigService {
@@ -35,6 +36,8 @@ service XdsTestConfigService {
 
   // Unary RPC to set extra resources to return in addition to the regular ones.
   rpc SetExtraResources (ExtraResourceRequest) returns (AckResponse) {}
+
+  rpc clear(google.protobuf.Empty) returns (AckResponse) {}
 }
 
 // Specify configuration for a particular type.

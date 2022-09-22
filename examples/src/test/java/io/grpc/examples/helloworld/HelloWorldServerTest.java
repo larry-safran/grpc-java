@@ -45,6 +45,9 @@ public class HelloWorldServerTest {
    */
   @Rule
   public final GrpcCleanupRule grpcCleanup = new GrpcCleanupRule();
+  private Server server = grpcCleanup.register(InProcessServerBuilder
+        .forName(serverName).directExecutor().addService(new GreeterImpl()).build());
+  private Channel channel = grpcCleanup.register(InProcessChannelBuilder.forName(serverName).directExecutor().build()));
 
   /**
    * To test the server, make calls with a real stub using the in-process channel, and verify

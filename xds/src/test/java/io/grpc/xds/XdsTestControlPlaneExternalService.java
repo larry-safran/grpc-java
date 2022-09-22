@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 The gRPC Authors
+ * Copyright 2022 The gRPC Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,6 @@ import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.stub.StreamObserver;
-import io.grpc.testing.protobuf.AberrationType;
 import io.grpc.testing.protobuf.AckResponse;
 import io.grpc.testing.protobuf.ControlData;
 import io.grpc.testing.protobuf.ExtraResourceRequest;
@@ -35,144 +34,114 @@ import io.grpc.testing.protobuf.TriggerTime;
 import io.grpc.testing.protobuf.UpdateControlDataRequest;
 import io.grpc.testing.protobuf.XdsConfig;
 import io.grpc.testing.protobuf.XdsResourceType;
+import io.grpc.testing.protobuf.XdsTestConfigServiceGrpc;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-final class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
+/**
+ * Add interface for {@link XdsTestConfigServiceGrpc} to the functionality of {@link
+ * XdsTestControlPlaneService} and support returning "unexpected" content to support tests as
+ * defined in go/grpc-xds-control-plane-tests. Specifically changing the data by resource type to
+ * return: - Status code as specified - Extra data - Redundant data - Missing data
+ *
+ * <p>We are specifying a single value representing the time a modification begin. It will apply to
+ * all types after the specified time with resource types having the order: LDS, RDS, CDS, EDS Note
+ * that "after EDS" means that all resource types will be returned normally and then the aberation
+ * will be applied if applicable
+ */
+class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
   private static final Logger logger =
       Logger.getLogger(XdsTestControlPlaneExternalService.class.getName());
   private static final Descriptors.FieldDescriptor ABBERATION_TYPE_FIELD =
       ControlData.getDescriptor().findFieldByName("aberration_type");
+  public static final AckResponse OK_RESPONSE = AckResponse.newBuilder().setStatus(0).build();
 
   private ControlData controlData;
   private final Map<String, Map<String, Message>> extraXdsResources = new HashMap<>();
+  private final String[] allResourceTypes =
+      new String[] {ADS_TYPE_URL_LDS, ADS_TYPE_URL_RDS, ADS_TYPE_URL_CDS, ADS_TYPE_URL_EDS};
 
-  public StreamObserver<XdsConfig> setXdsConfigRpc(
-      final StreamObserver<AckResponse> responseObserver) {
-    final StreamObserver<XdsConfig> requestObserver =
-        new StreamObserver<XdsConfig>() {
-
+  public void setXdsConfigRpc(XdsConfig value, StreamObserver<AckResponse> responseObserver) {
+    syncContext.execute(
+        new Runnable() {
           @Override
-          public void onNext(final XdsConfig value) {
-            syncContext.execute(
-                new Runnable() {
-                  @Override
-                  public void run() {
-                    logger.log(
-                        Level.FINEST, "control plane received request to set config {0}", value);
-                    setXdsConfig(
-                        convertTypeToString(value.getType()), value.getConfigurationList());
-                  }
-                });
+          public void run() {
+            logger.log(Level.FINEST, "control plane received request to set config {0}", value);
+            try {
+              setXdsConfigFromMsg(
+                  convertTypeToString(value.getType()), value.getConfigurationList());
+              responseObserver.onNext(OK_RESPONSE);
+              responseObserver.onCompleted();
+            } catch (Exception e) {
+              logger.log(Level.SEVERE, "Problem updating extra resources", e);
+              responseObserver.onError(e);
+            }
           }
-
-          @Override
-          public void onError(Throwable t) {
-            logger.log(Level.FINE, "Control plane error: {0} ", t);
-            onCompleted();
-          }
-
-          @Override
-          public void onCompleted() {
-            logger.log(Level.FINEST, "Config request completed");
-            responseObserver.onCompleted();
-          }
-        };
-
-    return requestObserver;
+        });
   }
 
-  public StreamObserver<UpdateControlDataRequest> updateControlData(
-      final StreamObserver<AckResponse> responseObserver) {
-    final StreamObserver<UpdateControlDataRequest> requestObserver =
-        new StreamObserver<UpdateControlDataRequest>() {
-
+  public void updateControlData(
+      UpdateControlDataRequest value, StreamObserver<AckResponse> responseObserver) {
+    syncContext.execute(
+        new Runnable() {
           @Override
-          public void onNext(final UpdateControlDataRequest value) {
-            syncContext.execute(
-                new Runnable() {
-                  @Override
-                  public void run() {
-                    logger.log(
-                        Level.FINEST,
-                        "control plane received request to update control data {0}",
-                        value);
-                    if (value.hasControlData()) {
-                      ControlData oldValue = controlData;
-                      controlData = value.getControlData();
-                    } else {
-                      controlData = null;
-                    }
-                    // TODO need to send update to client baesd on the new control data
-                  }
-                });
-          }
+          public void run() {
+            logger.log(
+                Level.FINEST, "control plane received request to update control data {0}", value);
 
-          @Override
-          public void onError(Throwable t) {
-            logger.log(Level.FINE, "Control plane error: {0} ", t);
-            onCompleted();
+            try {
+              if (value.hasControlData()) {
+                controlData = value.getControlData();
+              } else {
+                controlData = null;
+              }
+              // Need to send update to clients for all types based on the new control data
+              updateClientsForAllTypes();
+              responseObserver.onNext(OK_RESPONSE);
+              responseObserver.onCompleted();
+            } catch (Exception e) {
+              logger.log(Level.SEVERE, "Problem updating control data", e);
+              responseObserver.onError(e);
+            }
           }
-
-          @Override
-          public void onCompleted() {
-            logger.log(Level.FINEST, "Config request completed");
-            responseObserver.onCompleted();
-          }
-        };
-
-    return requestObserver;
+        });
   }
 
-  public StreamObserver<ExtraResourceRequest> SetExtraResources(
-      final StreamObserver<AckResponse> responseObserver) {
-    final StreamObserver<ExtraResourceRequest> requestObserver =
-        new StreamObserver<ExtraResourceRequest>() {
-
+  public void setExtraResources(
+      ExtraResourceRequest value, StreamObserver<AckResponse> responseObserver) {
+    syncContext.execute(
+        new Runnable() {
           @Override
-          public void onNext(final ExtraResourceRequest value) {
-            syncContext.execute(
-                new Runnable() {
-                  @Override
-                  public void run() {
-                    logger.log(
-                        Level.FINEST,
-                        "control plane received request to set extra config {0}",
-                        value);
+          public void run() {
+            logger.log(
+                Level.FINEST, "control plane received request to set extra config {0}", value);
 
-                    for (XdsConfig cur : value.getConfigurationsList()) {
-                      Map<String, Message> resourceMap = new HashMap<>();
+            try {
+              for (XdsConfig cur : value.getConfigurationsList()) {
+                Map<String, Message> resourceMap = new HashMap<>();
 
-                      for (XdsConfig.Resource curRes : cur.getConfigurationList()) {
-                        resourceMap.put(curRes.getName(), curRes.getConfiguration());
-                      }
+                for (XdsConfig.Resource curRes : cur.getConfigurationList()) {
+                  resourceMap.put(curRes.getName(), curRes.getConfiguration());
+                }
 
-                      extraXdsResources.put(convertTypeToString(cur.getType()), resourceMap);
-                    }
-                  }
-                });
+                extraXdsResources.put(convertTypeToString(cur.getType()), resourceMap);
+              }
+              responseObserver.onNext(OK_RESPONSE);
+              responseObserver.onCompleted();
+            } catch (Exception e) {
+              logger.log(Level.SEVERE, "Problem updating extra resources", e);
+              responseObserver.onError(e);
+            }
           }
-
-          @Override
-          public void onError(Throwable t) {
-            logger.log(Level.FINE, "Control plane error in SetExtraResources: {0} ", t);
-            onCompleted();
-          }
-
-          @Override
-          public void onCompleted() {
-            logger.log(Level.FINEST, "Extra resource request completed");
-            responseObserver.onCompleted();
-          }
-        };
-
-    return requestObserver;
+        });
   }
 
   @Override
@@ -230,6 +199,26 @@ final class XdsTestControlPlaneExternalService extends XdsTestControlPlaneServic
     }
   }
 
+  // Take incoming requests to update the XDS configuration, build the expected structure and
+  // let our parent process the update.
+  private void setXdsConfigFromMsg(String type, List<XdsConfig.Resource> resources) {
+    logger.log(
+        Level.FINE, "received request to set config {0} {1}", new Object[] {type, resources});
+    syncContext.execute(
+        new Runnable() {
+          @Override
+          public void run() {
+            Map<String, Message> resourceMap = new HashMap<>();
+            if (resources != null) {
+              for (XdsConfig.Resource curRes : resources) {
+                resourceMap.put(curRes.getName(), curRes.getConfiguration());
+              }
+            }
+            setXdsConfig(type, resourceMap); // delegate work to super class
+          }
+        });
+  }
+
   private void sendResponseInternal(
       String newVersionInfo,
       String type,
@@ -251,7 +240,8 @@ final class XdsTestControlPlaneExternalService extends XdsTestControlPlaneServic
             type, isAffected, isAberrationAfter, newVersionInfo, client, resourceNames, xdsNonces);
     client.onNext(responseBuilder.build());
 
-    if (controlData != null && controlData.getAberrationType() == SEND_REDUNDANT
+    if (controlData != null
+        && controlData.getAberrationType() == SEND_REDUNDANT
         && isAberrationAfter
         && isAffected) {
       String newNonce = String.valueOf(xdsNonces.get(client).incrementAndGet());
@@ -259,10 +249,11 @@ final class XdsTestControlPlaneExternalService extends XdsTestControlPlaneServic
       client.onNext(responseBuilder.build());
     }
 
-    if (controlData != null &&
-        typeIsStatusCode && isAberrationImmediatelyAfter(type) && isAffected) {
+    if (controlData != null
+        && typeIsStatusCode
+        && isAberrationImmediatelyAfter(type)
+        && isAffected) {
       callOnErrorWithStatusCode(controlData.getStatusCode(), client);
-      return;
     }
   }
 
@@ -272,6 +263,18 @@ final class XdsTestControlPlaneExternalService extends XdsTestControlPlaneServic
             .withDescription("Generated status code: " + statusCode)
             .asRuntimeException();
     client.onError(t);
+  }
+
+  private void updateClientsForAllTypes() {
+    syncContext.execute(
+        new Runnable() {
+          @Override
+          public void run() {
+            for (String type : allResourceTypes) {
+              notifySubscribers(getVersionForType(type), type);
+            }
+          }
+        });
   }
 
   private DiscoveryResponse.Builder genResponseBuilderAndIncrementNonce(
@@ -405,27 +408,6 @@ final class XdsTestControlPlaneExternalService extends XdsTestControlPlaneServic
     }
   }
 
-  // Take incoming requests to update the XDS configuration, build the expected structure and
-  // let our parent process the update.
-  private void setXdsConfig(String type, List<XdsConfig.Resource> resources) {
-    logger.log(
-        Level.FINE, "received request to set config {0} {1}", new Object[] {type, resources});
-    syncContext.execute(
-        new Runnable() {
-          @Override
-          public void run() {
-            Map<String, Message> resourceMap = new HashMap<>();
-            if (resources != null) {
-              for (XdsConfig.Resource curRes : resources) {
-                resourceMap.put(curRes.getName(), curRes.getConfiguration());
-              }
-            }
-            setXdsConfig(type, resourceMap); // delegate work to super class
-          }
-        });
-  }
-
-  // TODO change this to XdsResourceType enum
   private String convertTypeToString(XdsResourceType type) {
     switch (type) {
       case LDS:
@@ -454,5 +436,30 @@ final class XdsTestControlPlaneExternalService extends XdsTestControlPlaneServic
       default:
         return XdsResourceType.UNRECOGNIZED;
     }
+  }
+
+  public void clear() {
+    syncContext.execute(
+        new Runnable() {
+          @Override
+          public void run() {
+
+            controlData = null;
+            extraXdsResources.clear();
+            clearSubscribers(); // Parent class owns those data structures
+          }
+        });
+  }
+
+  public void waitForSyncContextToDrain() {
+    BlockingQueue<String> bq = new ArrayBlockingQueue<>(1);
+    syncContext.executeLater(
+        new Runnable() {
+          @Override
+          public void run() {
+            bq.offer("a");
+          }
+        });
+    bq.poll();
   }
 }
