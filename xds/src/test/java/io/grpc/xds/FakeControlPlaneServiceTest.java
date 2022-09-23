@@ -19,6 +19,7 @@ package io.grpc.xds;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.Any;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import com.google.protobuf.UInt32Value;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
@@ -70,14 +71,21 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.logging.Logger;
+import java.util.stream.Collectors;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 /**
  * Tests the fake control plane service itself (The one designed for misbehaving control planes).
@@ -128,7 +136,7 @@ public class FakeControlPlaneServiceTest {
   protected Map<String, Message> edsMap = new HashMap<>();
 
   // Tracking changes
-  protected Queue<DiscoveryResponse> responses = new LinkedList<>();
+  protected Map<String, List<DiscoveryResponse>> responses = new HashMap<>();
   protected Map<ResourceType, Queue<Status>> resourceErrorMap = new HashMap<>();
 
   /**
@@ -160,14 +168,134 @@ public class FakeControlPlaneServiceTest {
     watchResource(ResourceType.RDS, RDS_NAME);
     watchResource(ResourceType.CDS, CLUSTER_NAME);
     watchResource(ResourceType.EDS, EDS_NAME);
-    waitForResults();
-    Assert.assertEquals(4, responses.size());
-    // TODO verify things came as expected
+//    waitForResults();
+    // verify things came as expected
+      // Verify the right number of responses came and they had the correct resource names
+    assertEquals(4, responses.size());
+    Assert.assertTrue(resourceErrorMap.isEmpty());
+
+    Map<XdsResourceType,String> thingsToCheck = ImmutableMap.of(
+        XdsResourceType.LDS, serverHostName,
+        XdsResourceType.RDS, RDS_NAME,
+        XdsResourceType.CDS, CLUSTER_NAME,
+        XdsResourceType.EDS, EDS_NAME);
+    checkSingleNamesPerType(thingsToCheck);
+
+    watchResource(ResourceType.LDS, "dummy1");
+
+    assertEquals(Arrays.asList(serverHostName, "dummy1"), getResourceNames(XdsResourceType.LDS));
 
     // TODO update config and make sure updates are propagated
+    responses.clear();
+
     // TODO try each type of control data and make sure
     //    updates are propagated correctly
     //    new discovery is handled correctly
+  }
+
+  private void checkSingleNamesPerType(Map<XdsResourceType,String> typedResNames)  {
+    for (Map.Entry<XdsResourceType,String> entry : typedResNames.entrySet()) {
+      assertEquals(Arrays.asList(entry.getValue()), getResourceNames(entry.getKey()));
+      checkRsponseIsExpected(entry.getKey(), entry.getValue());
+    }
+  }
+
+  private static Message unpackSafely(Any resource, Class clazz) {
+    try {
+      return resource.unpack(clazz);
+    } catch (InvalidProtocolBufferException e) {
+        return null;
+    }
+  }
+
+  private void checkRsponseIsExpected(XdsResourceType type, String name) {
+    Message fromServer = controlPlaneService.getResource(type, name);
+    Message received = getReceivedResource(type.name(), name);
+    String fromString = (fromServer == null) ? null : fromServer.toString();
+    String receivedString = (received == null) ? null : received.toString();
+
+    assertEquals(fromString, receivedString);
+  }
+
+  private boolean namesMatch(Message msg, String name, Method getName) {
+    if (msg == null) {
+      return name == null;
+    }
+    if (name == null) {
+      return false;
+    }
+
+    try {
+      return name.equals(getName.invoke(msg));
+    } catch (IllegalAccessException|InvocationTargetException e) {
+      fail("Cannot get name from message: " + e.getMessage());
+      return false;
+    }
+  }
+
+  private  Message getReceivedResource(String type, String name) {
+    Class clazz = getMessageClassForXdsType(type);
+    try {
+      Method getName = getGetNameMethod(clazz);
+      Message resource = responses.get(type).stream()
+          .map(DiscoveryResponse::getResourcesList)
+          .flatMap(List::stream)
+          .map(r -> unpackSafely(r, clazz))
+          .filter(r ->namesMatch(r, name, getName))
+          .findFirst()
+          .orElse(null);
+
+      return resource;
+    } catch (NoSuchMethodException e) {
+      fail("Could not find getName method for " + type);
+      return null; //
+    }
+  }
+
+  private List<String> getResourceNames(XdsResourceType type) {
+    List<DiscoveryResponse> responseList = this.responses.get(type.name());
+    if (responseList == null) {
+      return null;
+    }
+
+    List<String> resourceNames = new ArrayList<>();
+    try {
+      Class clazz = getMessageClassForXdsType(type.name());
+      Method getName = getGetNameMethod(clazz);
+
+      for (DiscoveryResponse discoveryResponse : responseList) {
+        for (Any resource : discoveryResponse.getResourcesList()) {
+          Message message = resource.unpack(clazz);
+          resourceNames.add((String) getName.invoke(message));
+        }
+      }
+    } catch (Exception e) {
+      // should never happen
+      fail("Error retrieving resource names: " + e.getMessage());
+    }
+
+    return resourceNames;
+  }
+
+  private Method getGetNameMethod(Class clazz) throws NoSuchMethodException {
+    String methodName = "getName";
+    if (clazz == ClusterLoadAssignment.class) {
+      methodName = "getClusterName";
+    }
+    return clazz.getMethod(methodName, null);
+  }
+
+  private static Class getMessageClassForXdsType(String type) {
+    Class clazz;
+    switch (type) {
+      case "LDS": clazz = Listener.class; break;
+      case "RDS": clazz = RouteConfiguration.class; break;
+      case "CDS": clazz = Cluster.class; break;
+      case "EDS": clazz = ClusterLoadAssignment.class; break;
+      default:
+        throw new IllegalArgumentException("invalid type: " + type);
+    }
+    return clazz;
   }
 
   private void waitForResults() {
@@ -261,8 +389,8 @@ public class FakeControlPlaneServiceTest {
     ldsMap = ImmutableMap.of(
         tcpListenerName, serverListener(tcpListenerName),
         serverHostName, clientListener(serverHostName),
-        "dummy1", ControlData.newBuilder().build(),
-        "dummy2", ControlData.newBuilder().build()
+        "dummy1", Listener.newBuilder().setName("1").build(),
+        "dummy2", Listener.newBuilder().setName("2").build()
     );
 
     // Build RDS map of real value, plus 2 dummy entries
@@ -308,7 +436,7 @@ public class FakeControlPlaneServiceTest {
           @Override
           public void onNext(final DiscoveryResponse response) {
             AbstractXdsClient.ResourceType type = AbstractXdsClient.ResourceType.fromTypeUrl(response.getTypeUrl());
-            responses.add(response);
+            responses.computeIfAbsent(type.name(), l -> new ArrayList<>()).add(response);
           }
 
           @Override

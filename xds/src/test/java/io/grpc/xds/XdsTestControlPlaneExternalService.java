@@ -22,7 +22,12 @@ import static io.grpc.testing.protobuf.AberrationType.STATUS_CODE;
 import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.Any;
 import com.google.protobuf.Descriptors;
+import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
+import io.envoyproxy.envoy.config.cluster.v3.Cluster;
+import io.envoyproxy.envoy.config.endpoint.v3.ClusterLoadAssignment;
+import io.envoyproxy.envoy.config.listener.v3.Listener;
+import io.envoyproxy.envoy.config.route.v3.RouteConfiguration;
 import io.envoyproxy.envoy.service.discovery.v3.DiscoveryResponse;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
@@ -201,22 +206,18 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
 
   // Take incoming requests to update the XDS configuration, build the expected structure and
   // let our parent process the update.
-  private void setXdsConfigFromMsg(String type, List<XdsConfig.Resource> resources) {
+  private void setXdsConfigFromMsg(String type, List<XdsConfig.Resource> resources) throws InvalidProtocolBufferException {
     logger.log(
         Level.FINE, "received request to set config {0} {1}", new Object[] {type, resources});
-    syncContext.execute(
-        new Runnable() {
-          @Override
-          public void run() {
-            Map<String, Message> resourceMap = new HashMap<>();
-            if (resources != null) {
-              for (XdsConfig.Resource curRes : resources) {
-                resourceMap.put(curRes.getName(), curRes.getConfiguration());
-              }
-            }
-            setXdsConfig(type, resourceMap); // delegate work to super class
-          }
-        });
+    Map<String, Message> resourceMap = new HashMap<>();
+    Class clazz = convertStringToClass(type);
+    if (resources != null) {
+      for (XdsConfig.Resource curRes : resources) {
+        Message typedClass = curRes.getConfiguration().unpack(clazz);
+        resourceMap.put(curRes.getName(), typedClass);
+      }
+    }
+    setXdsConfig(type, resourceMap); // delegate work to super class
   }
 
   private void sendResponseInternal(
@@ -438,6 +439,21 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
     }
   }
 
+  private Class convertStringToClass(String type) {
+    switch (type) {
+      case ADS_TYPE_URL_LDS:
+        return Listener.class;
+      case ADS_TYPE_URL_CDS:
+        return Cluster.class;
+      case ADS_TYPE_URL_RDS:
+        return RouteConfiguration.class;
+      case ADS_TYPE_URL_EDS:
+        return ClusterLoadAssignment.class;
+      default:
+        return null;
+    }
+  }
+
   public void clear() {
     syncContext.execute(
         new Runnable() {
@@ -461,5 +477,10 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
           }
         });
     bq.poll();
+  }
+
+  public Message getResource(XdsResourceType type, String resourceName) {
+    Message message = getXdsResources().get(convertTypeToString(type)).get(resourceName);
+    return message;
   }
 }
