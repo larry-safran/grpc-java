@@ -51,7 +51,7 @@ message XdsConfig {
   repeated Resource configuration = 2;
 }
 
-// Specify configuration for a particular type.
+// Specify configuration for a particular type of aberration.  Null control_data to clear
 message UpdateControlDataRequest {
   // Describes desired behavior.  Updates may be sent out as a result of this changing
   ControlData control_data = 1;

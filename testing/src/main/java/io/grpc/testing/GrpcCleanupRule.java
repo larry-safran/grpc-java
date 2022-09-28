@@ -177,8 +177,9 @@ public final class GrpcCleanupRule extends ExternalResource {
 
       for (int i = resources.size() - 1; i >= 0; i--) {
         try {
+          long duration = Math.max(timeoutNanos - stopwatch.elapsed(TimeUnit.NANOSECONDS), 50);
           boolean released = resources.get(i).awaitReleased(
-              timeoutNanos - stopwatch.elapsed(TimeUnit.NANOSECONDS), TimeUnit.NANOSECONDS);
+              duration, TimeUnit.NANOSECONDS);
           if (released) {
             resources.remove(i);
           }

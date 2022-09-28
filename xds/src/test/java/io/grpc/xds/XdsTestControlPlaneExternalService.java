@@ -21,7 +21,6 @@ import static io.grpc.testing.protobuf.AberrationType.STATUS_CODE;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.Any;
-import com.google.protobuf.Descriptors;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import io.envoyproxy.envoy.config.cluster.v3.Cluster;
@@ -65,14 +64,12 @@ import java.util.logging.Logger;
 class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
   private static final Logger logger =
       Logger.getLogger(XdsTestControlPlaneExternalService.class.getName());
-  private static final Descriptors.FieldDescriptor ABBERATION_TYPE_FIELD =
-      ControlData.getDescriptor().findFieldByName("aberration_type");
   public static final AckResponse OK_RESPONSE = AckResponse.newBuilder().setStatus(0).build();
 
   private ControlData controlData;
   private final Map<String, Map<String, Message>> extraXdsResources = new HashMap<>();
   private final String[] allResourceTypes =
-      new String[] {ADS_TYPE_URL_LDS, ADS_TYPE_URL_RDS, ADS_TYPE_URL_CDS, ADS_TYPE_URL_EDS};
+      new String[] {ADS_TYPE_URL_LDS, ADS_TYPE_URL_CDS, ADS_TYPE_URL_RDS, ADS_TYPE_URL_EDS};
 
   public void setXdsConfigRpc(XdsConfig value, StreamObserver<AckResponse> responseObserver) {
     syncContext.execute(
@@ -109,7 +106,9 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
                 controlData = null;
               }
               // Need to send update to clients for all types based on the new control data
-              updateClientsForAllTypes();
+              for (String type : allResourceTypes) {
+                notifySubscribers(getVersionForType(type), type);
+              }
               responseObserver.onNext(OK_RESPONSE);
               responseObserver.onCompleted();
             } catch (Exception e) {
@@ -131,10 +130,12 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
 
             try {
               for (XdsConfig cur : value.getConfigurationsList()) {
+                Class<? extends Message > clazz =
+                    convertStringToClass(convertTypeToString(cur.getType()));
                 Map<String, Message> resourceMap = new HashMap<>();
 
                 for (XdsConfig.Resource curRes : cur.getConfigurationList()) {
-                  resourceMap.put(curRes.getName(), curRes.getConfiguration());
+                  resourceMap.put(curRes.getName(), curRes.getConfiguration().unpack(clazz));
                 }
 
                 extraXdsResources.put(convertTypeToString(cur.getType()), resourceMap);
@@ -147,6 +148,21 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
             }
           }
         });
+  }
+
+  public static XdsResourceType convertStringToType(String type) {
+    switch (type) {
+      case ADS_TYPE_URL_LDS:
+        return XdsResourceType.LDS;
+      case ADS_TYPE_URL_CDS:
+        return XdsResourceType.CDS;
+      case ADS_TYPE_URL_RDS:
+        return XdsResourceType.RDS;
+      case ADS_TYPE_URL_EDS:
+        return XdsResourceType.EDS;
+      default:
+        return XdsResourceType.UNRECOGNIZED;
+    }
   }
 
   @Override
@@ -210,7 +226,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
     logger.log(
         Level.FINE, "received request to set config {0} {1}", new Object[] {type, resources});
     Map<String, Message> resourceMap = new HashMap<>();
-    Class clazz = convertStringToClass(type);
+    Class<? extends Message > clazz = convertStringToClass(type);
     if (resources != null) {
       for (XdsConfig.Resource curRes : resources) {
         Message typedClass = curRes.getConfiguration().unpack(clazz);
@@ -231,7 +247,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
       Set<String> resourceNames) {
 
     if (!isAberrationAfter && typeIsStatusCode && isAffected && controlData != null) {
-      callOnErrorWithStatusCode(controlData.getStatusCode(), client);
+      callOnErrorWithStatusCode(controlData.getStatusCode(), type, client);
       return;
     }
 
@@ -243,7 +259,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
 
     if (controlData != null
         && controlData.getAberrationType() == SEND_REDUNDANT
-        && isAberrationAfter
+        && !isAberrationAfter
         && isAffected) {
       String newNonce = String.valueOf(xdsNonces.get(client).incrementAndGet());
       responseBuilder.setNonce(newNonce);
@@ -254,28 +270,19 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
         && typeIsStatusCode
         && isAberrationImmediatelyAfter(type)
         && isAffected) {
-      callOnErrorWithStatusCode(controlData.getStatusCode(), client);
+      callOnErrorWithStatusCode(controlData.getStatusCode(), type, client);
     }
   }
 
-  private void callOnErrorWithStatusCode(int statusCode, StreamObserver<DiscoveryResponse> client) {
+  private void callOnErrorWithStatusCode(int statusCode, String resourceType,
+                                         StreamObserver<DiscoveryResponse> client) {
     StatusRuntimeException t =
         Status.fromCodeValue(statusCode)
-            .withDescription("Generated status code: " + statusCode)
+            .withDescription(
+                String.format("Generated status code %d for type %s" , statusCode, resourceType))
             .asRuntimeException();
     client.onError(t);
-  }
-
-  private void updateClientsForAllTypes() {
-    syncContext.execute(
-        new Runnable() {
-          @Override
-          public void run() {
-            for (String type : allResourceTypes) {
-              notifySubscribers(getVersionForType(type), type);
-            }
-          }
-        });
+    removeClient(client);
   }
 
   private DiscoveryResponse.Builder genResponseBuilderAndIncrementNonce(
@@ -288,7 +295,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
       Map<StreamObserver<DiscoveryResponse>, AtomicInteger> clientToNonceMap) {
 
     String newNonce = String.valueOf(clientToNonceMap.get(client).incrementAndGet());
-    if (controlData == null || !isAffected | isAberrationAfter) {
+    if (controlData == null || !isAffected || isAberrationAfter) {
       return super.generateResponseBuilder(resourceType, version, newNonce, resourceNames);
     }
 
@@ -303,7 +310,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
         break;
       case SEND_EXTRA:
         buildStandardResponses(resourceType, resourceNames, responseBuilder);
-        addExtraResponses(resourceType, resourceNames, responseBuilder);
+        addExtraResponses(resourceType, responseBuilder);
         break;
       case MISSING_RESOURCES:
         buildMissingResponses(resourceType, resourceNames, responseBuilder);
@@ -345,16 +352,14 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
   }
 
   private void addExtraResponses(
-      String resourceType, Set<String> resourceNames, DiscoveryResponse.Builder responseBuilder) {
+      String resourceType, DiscoveryResponse.Builder responseBuilder) {
     Map<String, Message> resources = extraXdsResources.get(resourceType);
     if (resources == null) {
       return;
     }
 
     for (Map.Entry<String, Message> entry : resources.entrySet()) {
-      if (resourceNames.contains(entry.getKey())) {
-        responseBuilder.addResources(Any.pack(entry.getValue(), resourceType));
-      }
+      responseBuilder.addResources(Any.pack(entry.getValue(), resourceType));
     }
   }
 
@@ -376,7 +381,6 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
       return;
     }
 
-    ControlData cd = this.controlData; // snapshot
     HashMap<String, Message> typeToResourceMap = xdsResources.get(resourceType);
     if (typeToResourceMap == null) {
       return;
@@ -424,22 +428,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
     }
   }
 
-  private XdsResourceType convertStringToType(String type) {
-    switch (type) {
-      case ADS_TYPE_URL_LDS:
-        return XdsResourceType.LDS;
-      case ADS_TYPE_URL_CDS:
-        return XdsResourceType.CDS;
-      case ADS_TYPE_URL_RDS:
-        return XdsResourceType.RDS;
-      case ADS_TYPE_URL_EDS:
-        return XdsResourceType.EDS;
-      default:
-        return XdsResourceType.UNRECOGNIZED;
-    }
-  }
-
-  private Class convertStringToClass(String type) {
+  private Class<? extends Message > convertStringToClass(String type) {
     switch (type) {
       case ADS_TYPE_URL_LDS:
         return Listener.class;

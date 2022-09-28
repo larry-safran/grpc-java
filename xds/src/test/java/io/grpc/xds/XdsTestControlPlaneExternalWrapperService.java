@@ -28,16 +28,19 @@ class XdsTestControlPlaneExternalWrapperService extends
 
   @Override
   public void setXdsConfigRpc(XdsConfig request, StreamObserver<AckResponse> responseObserver) {
+    logger.finest("Set xds config: " + request);
     xdsService.setXdsConfigRpc(request,responseObserver);
   }
 
   @Override
   public void updateControlData(UpdateControlDataRequest request, StreamObserver<AckResponse> responseObserver) {
+    logger.finest("Updating control data: " + request);
     xdsService.updateControlData(request, responseObserver);
   }
 
   @Override
   public void setExtraResources(ExtraResourceRequest request, StreamObserver<AckResponse> responseObserver) {
+    logger.finest("Set extra resources: " + request);
     xdsService.setExtraResources(request, responseObserver);
   }
 

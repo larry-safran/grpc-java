@@ -181,8 +181,8 @@ class XdsTestControlPlaneService extends
                 if (!xdsNonces.get(resourceType).containsKey(responseObserver)) {
                   xdsNonces.get(resourceType).put(responseObserver, new AtomicInteger(0));
                 }
-                sendResponse(resourceType, reqResources, responseObserver);
                 subscribers.get(resourceType).put(responseObserver, reqResources);
+                sendResponse(resourceType, reqResources, responseObserver);
               }
             });
           }
@@ -196,13 +196,17 @@ class XdsTestControlPlaneService extends
           @Override
           public void onCompleted() {
             responseObserver.onCompleted();
-            for (String type : subscribers.keySet()) {
-              subscribers.get(type).remove(responseObserver);
-              xdsNonces.get(type).remove(responseObserver);
-            }
+            removeClient(responseObserver);
           }
         };
     return requestObserver;
+  }
+
+  protected void removeClient(StreamObserver<DiscoveryResponse> responseObserver) {
+    for (String type : subscribers.keySet()) {
+      subscribers.get(type).remove(responseObserver);
+      xdsNonces.get(type).remove(responseObserver);
+    }
   }
 
   protected void sendResponse(String resourceType, Set<String> requestedResourceNames, StreamObserver<DiscoveryResponse> responseObserver) {
