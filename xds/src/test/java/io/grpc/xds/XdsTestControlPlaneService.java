@@ -55,7 +55,7 @@ class XdsTestControlPlaneService extends
       "type.googleapis.com/envoy.config.endpoint.v3.ClusterLoadAssignment";
 
   public ImmutableMap<String, HashMap<StreamObserver<DiscoveryResponse>, Set<String>>>
-  getSubscribers() {
+      getSubscribers() {
     return ImmutableMap.copyOf(subscribers);
   }
 
@@ -64,7 +64,7 @@ class XdsTestControlPlaneService extends
   }
 
   public ImmutableMap<String, HashMap<StreamObserver<DiscoveryResponse>, AtomicInteger>>
-  getXdsNonces() {
+      getXdsNonces() {
     return ImmutableMap.copyOf(xdsNonces);
   }
 
@@ -134,7 +134,8 @@ class XdsTestControlPlaneService extends
     return responseBuilder.build();
   }
 
-  protected DiscoveryResponse.Builder generateResponseBuilder(String resourceType, String version, String nonce, Set<String> resourceNames) {
+  protected DiscoveryResponse.Builder generateResponseBuilder(
+      String resourceType, String version, String nonce, Set<String> resourceNames) {
     DiscoveryResponse.Builder responseBuilder = DiscoveryResponse.newBuilder()
         .setTypeUrl(resourceType)
         .setVersionInfo(version)
@@ -167,7 +168,8 @@ class XdsTestControlPlaneService extends
                 }
                 String resourceType = value.getTypeUrl();
                 if (!value.getResponseNonce().isEmpty()
-                    && !String.valueOf(xdsNonces.get(resourceType)).equals(value.getResponseNonce())) {
+                    && !String.valueOf(xdsNonces.get(resourceType)).equals(
+                        value.getResponseNonce())) {
                   logger.log(Level.FINE, "Resource nonce does not match, ignore.");
                   return;
                 }
@@ -209,7 +211,8 @@ class XdsTestControlPlaneService extends
     }
   }
 
-  protected void sendResponse(String resourceType, Set<String> requestedResourceNames, StreamObserver<DiscoveryResponse> responseObserver) {
+  protected void sendResponse(String resourceType, Set<String> requestedResourceNames,
+                              StreamObserver<DiscoveryResponse> responseObserver) {
     DiscoveryResponse response = generateResponse(resourceType,
         String.valueOf(xdsVersions.get(resourceType)),
         String.valueOf(xdsNonces.get(resourceType).get(responseObserver)),

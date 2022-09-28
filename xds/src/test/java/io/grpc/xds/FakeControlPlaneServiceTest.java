@@ -174,7 +174,7 @@ public class FakeControlPlaneServiceTest {
   }
 
   @Test
-  public void VerifySimpleCase() throws Exception {
+  public void verifySimpleCase() throws Exception {
     String tcpListenerName = SERVER_LISTENER_TEMPLATE_NO_REPLACEMENT;
     String serverHostName = "test-server";
     setToDefaultConfig(tcpListenerName, serverHostName);
@@ -213,17 +213,17 @@ public class FakeControlPlaneServiceTest {
     //    updates are propagated correctly
     responses.clear();
     sendExtraConfiguration("dummy1", LDS);
-    sendCDUpdateForAllResourceTypes(AberrationType.SEND_EXTRA, TriggerTime.BEFORE_LDS);
+    sendCdUpdateForAllResourceTypes(AberrationType.SEND_EXTRA, TriggerTime.BEFORE_LDS);
     Assert.assertEquals(Arrays.asList(serverHostName, "dummy1"), getResourceNames(LDS));
 
     responses.clear();
-    sendCDUpdateForAllResourceTypes(AberrationType.SEND_EMPTY, TriggerTime.BEFORE_CDS);
+    sendCdUpdateForAllResourceTypes(AberrationType.SEND_EMPTY, TriggerTime.BEFORE_CDS);
     Assert.assertEquals(Arrays.asList(serverHostName), getResourceNames(LDS));
     Assert.assertEquals(1L, responses.get(CDS.name()).size());
     assertTrue(responses.get(CDS.name()).get(0).getResourcesList().isEmpty());
 
     responses.clear();
-    sendCDUpdateForAllResourceTypes(AberrationType.SEND_REDUNDANT, TriggerTime.BEFORE_LDS);
+    sendCdUpdateForAllResourceTypes(AberrationType.SEND_REDUNDANT, TriggerTime.BEFORE_LDS);
     Assert.assertEquals(Arrays.asList(serverHostName, serverHostName), getResourceNames(LDS));
 
     responses.clear();
@@ -287,7 +287,7 @@ public class FakeControlPlaneServiceTest {
     Assert.assertEquals(first, second);
   }
 
-  private void sendCDUpdateForAllResourceTypes(AberrationType type, TriggerTime time) {
+  private void sendCdUpdateForAllResourceTypes(AberrationType type, TriggerTime time) {
     ControlData controlData =
         ControlData.newBuilder()
             .addAllAffectedTypesValue(Arrays.asList(0, 1, 2, 3))
@@ -594,7 +594,7 @@ public class FakeControlPlaneServiceTest {
 
           @Override
           public void onCompleted() {
-            logger.log(Level.FINE, "Completed was called: "+ discoveryWriter);
+            logger.log(Level.FINE, "Completed was called: " + discoveryWriter);
             if (discoveryWriter == null) {
               return;
             }
