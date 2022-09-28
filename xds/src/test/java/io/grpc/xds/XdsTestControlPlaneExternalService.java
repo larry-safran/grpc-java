@@ -43,9 +43,8 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -100,15 +99,22 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
                 Level.FINEST, "control plane received request to update control data {0}", value);
 
             try {
+              boolean skipNotification = false;
               if (value.hasControlData()) {
                 controlData = value.getControlData();
               } else {
+                if (controlData == null) { // Is a noop, so don't need to send udpates
+                  skipNotification = true;
+                }
                 controlData = null;
               }
               // Need to send update to clients for all types based on the new control data
-              for (String type : allResourceTypes) {
-                notifySubscribers(getVersionForType(type), type);
+              if (!skipNotification) {
+                for (String type : allResourceTypes) {
+                  notifySubscribers(getVersionForType(type), type);
+                }
               }
+
               responseObserver.onNext(OK_RESPONSE);
               responseObserver.onCompleted();
             } catch (Exception e) {
@@ -130,7 +136,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
 
             try {
               for (XdsConfig cur : value.getConfigurationsList()) {
-                Class<? extends Message > clazz =
+                Class<? extends Message> clazz =
                     convertStringToClass(convertTypeToString(cur.getType()));
                 Map<String, Message> resourceMap = new HashMap<>();
 
@@ -204,7 +210,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
     boolean isAberrationAfter = aberrationIsAfter(type);
 
     for (Map.Entry<StreamObserver<DiscoveryResponse>, Set<String>> entry :
-        subscribers.get(type).entrySet()) {
+        Objects.requireNonNull(subscribers.get(type)).entrySet()) {
       StreamObserver<DiscoveryResponse> client = entry.getKey();
       Set<String> resourceNames = entry.getValue();
 
@@ -222,11 +228,12 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
 
   // Take incoming requests to update the XDS configuration, build the expected structure and
   // let our parent process the update.
-  private void setXdsConfigFromMsg(String type, List<XdsConfig.Resource> resources) throws InvalidProtocolBufferException {
+  private void setXdsConfigFromMsg(String type, List<XdsConfig.Resource> resources)
+      throws InvalidProtocolBufferException {
     logger.log(
         Level.FINE, "received request to set config {0} {1}", new Object[] {type, resources});
     Map<String, Message> resourceMap = new HashMap<>();
-    Class<? extends Message > clazz = convertStringToClass(type);
+    Class<? extends Message> clazz = convertStringToClass(type);
     if (resources != null) {
       for (XdsConfig.Resource curRes : resources) {
         Message typedClass = curRes.getConfiguration().unpack(clazz);
@@ -274,12 +281,12 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
     }
   }
 
-  private void callOnErrorWithStatusCode(int statusCode, String resourceType,
-                                         StreamObserver<DiscoveryResponse> client) {
+  private void callOnErrorWithStatusCode(
+      int statusCode, String resourceType, StreamObserver<DiscoveryResponse> client) {
     StatusRuntimeException t =
         Status.fromCodeValue(statusCode)
             .withDescription(
-                String.format("Generated status code %d for type %s" , statusCode, resourceType))
+                String.format("Generated status code %d for type %s", statusCode, resourceType))
             .asRuntimeException();
     client.onError(t);
     removeClient(client);
@@ -351,8 +358,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
         || controlData.getAffectedTypesList().contains(resType);
   }
 
-  private void addExtraResponses(
-      String resourceType, DiscoveryResponse.Builder responseBuilder) {
+  private void addExtraResponses(String resourceType, DiscoveryResponse.Builder responseBuilder) {
     Map<String, Message> resources = extraXdsResources.get(resourceType);
     if (resources == null) {
       return;
@@ -428,7 +434,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
     }
   }
 
-  private Class<? extends Message > convertStringToClass(String type) {
+  private Class<? extends Message> convertStringToClass(String type) {
     switch (type) {
       case ADS_TYPE_URL_LDS:
         return Listener.class;
@@ -448,28 +454,15 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
         new Runnable() {
           @Override
           public void run() {
-
             controlData = null;
             extraXdsResources.clear();
-            clearSubscribers(); // Parent class owns those data structures
+            clearSubscribersAndResources(); // Parent class owns those data structures
           }
         });
-  }
-
-  public void waitForSyncContextToDrain() {
-    BlockingQueue<String> bq = new ArrayBlockingQueue<>(1);
-    syncContext.executeLater(
-        new Runnable() {
-          @Override
-          public void run() {
-            bq.offer("a");
-          }
-        });
-    bq.poll();
   }
 
   public Message getResource(XdsResourceType type, String resourceName) {
-    Message message = getXdsResources().get(convertTypeToString(type)).get(resourceName);
-    return message;
+    HashMap<String, Message> resourceMap = getXdsResources().get(convertTypeToString(type));
+    return (resourceMap != null) ? resourceMap.get(resourceName) : null;
   }
 }

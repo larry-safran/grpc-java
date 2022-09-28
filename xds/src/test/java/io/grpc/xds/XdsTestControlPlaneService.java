@@ -217,8 +217,9 @@ class XdsTestControlPlaneService extends
     responseObserver.onNext(response);
   }
 
-  protected void clearSubscribers() {
+  protected void clearSubscribersAndResources() {
     subscribers.values().forEach(m -> m.clear());
     xdsNonces.values().forEach(m -> m.clear());
+    xdsResources.values().forEach(m -> m.clear());
   }
 }

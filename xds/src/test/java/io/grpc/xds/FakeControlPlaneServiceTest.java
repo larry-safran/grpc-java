@@ -14,8 +14,16 @@
  * limitations under the License.
  */
 
-
 package io.grpc.xds;
+
+import static io.grpc.testing.protobuf.XdsResourceType.CDS;
+import static io.grpc.testing.protobuf.XdsResourceType.EDS;
+import static io.grpc.testing.protobuf.XdsResourceType.LDS;
+import static io.grpc.testing.protobuf.XdsResourceType.RDS;
+import static io.grpc.testing.protobuf.XdsResourceType.UNRECOGNIZED;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.protobuf.Any;
@@ -68,13 +76,6 @@ import io.grpc.testing.protobuf.UpdateControlDataRequest;
 import io.grpc.testing.protobuf.XdsConfig;
 import io.grpc.testing.protobuf.XdsResourceType;
 import io.grpc.testing.protobuf.XdsTestConfigServiceGrpc;
-import org.junit.After;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Rule;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.junit.runners.JUnit4;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -84,17 +85,15 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
-import static io.grpc.testing.protobuf.XdsResourceType.CDS;
-import static io.grpc.testing.protobuf.XdsResourceType.EDS;
-import static io.grpc.testing.protobuf.XdsResourceType.LDS;
-import static io.grpc.testing.protobuf.XdsResourceType.RDS;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
+import org.junit.After;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Rule;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.JUnit4;
 
 /**
  * Tests the fake control plane service itself (The one designed for misbehaving control planes).
@@ -114,25 +113,27 @@ public class FakeControlPlaneServiceTest {
   private static final String HTTP_CONNECTION_MANAGER_TYPE_URL =
       "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3"
           + ".HttpConnectionManager";
+  public static final UpdateControlDataRequest DEFAULT_UPDATE_CD =
+      UpdateControlDataRequest.newBuilder().getDefaultInstanceForType();
 
   private XdsTestControlPlaneExternalService controlPlaneService =
       new XdsTestControlPlaneExternalService();
   private XdsTestControlPlaneExternalWrapperService wrapperService =
       new XdsTestControlPlaneExternalWrapperService(controlPlaneService);
 
-  @Rule
-  public final GrpcCleanupRule grpcCleanup = new GrpcCleanupRule();
+  @Rule public final GrpcCleanupRule grpcCleanup = new GrpcCleanupRule();
 
-  private Server server = grpcCleanup.register(InProcessServerBuilder
-      .forName(SERVER_NAME)
-      .directExecutor()
-      .addService(controlPlaneService)
-      .addService(wrapperService)
-      .build());
-  private Channel channel = grpcCleanup.register(InProcessChannelBuilder.forName(SERVER_NAME)
-      .directExecutor().build());
+  private Server server =
+      grpcCleanup.register(
+          InProcessServerBuilder.forName(SERVER_NAME)
+              .directExecutor()
+              .addService(controlPlaneService)
+              .addService(wrapperService)
+              .build());
+  private Channel channel =
+      grpcCleanup.register(InProcessChannelBuilder.forName(SERVER_NAME).directExecutor().build());
   protected XdsTestConfigServiceGrpc.XdsTestConfigServiceBlockingStub controlStub =
-       XdsTestConfigServiceGrpc.newBlockingStub(channel);
+      XdsTestConfigServiceGrpc.newBlockingStub(channel);
   protected AggregatedDiscoveryServiceGrpc.AggregatedDiscoveryServiceStub discoveryStub =
       AggregatedDiscoveryServiceGrpc.newStub(channel);
   protected StreamObserver<DiscoveryRequest> discoveryWriter;
@@ -147,30 +148,29 @@ public class FakeControlPlaneServiceTest {
   protected Map<String, List<DiscoveryResponse>> responses = new HashMap<>();
   protected Map<XdsResourceType, List<Status>> resourceErrorMap = new HashMap<>();
 
-  /**
-   * Start control plane server and get control plane port.
-   */
+  /** Start control plane server and get control plane port. */
   @Before
   public void setUp() throws Exception {
-//    clearXdsClient();
+    //    clearXdsClient();
     server.start();
     StreamObserver<DiscoveryResponse> discoveryReader = getDiscoveryReader();
-    discoveryWriter =
-        discoveryStub.withWaitForReady().streamAggregatedResources(discoveryReader);
+    discoveryWriter = discoveryStub.withWaitForReady().streamAggregatedResources(discoveryReader);
   }
 
   @After
   public void tearDown() {
     if (discoveryWriter != null) {
-      discoveryWriter.onCompleted();
+      StreamObserver<DiscoveryRequest> oldWriter = discoveryWriter;
+      discoveryWriter = null;
+      oldWriter.onCompleted();
     }
   }
 
-  private void clearXdsClient() {
+  private void clearXdsClients() {
     responses.clear();
     resourceErrorMap.clear();
 
-    wrapperService.clear(null);
+    wrapperService.clear(null); // clears the server side
   }
 
   @Test
@@ -184,17 +184,18 @@ public class FakeControlPlaneServiceTest {
     watchResource(ResourceType.RDS, RDS_NAME);
     watchResource(ResourceType.CDS, CLUSTER_NAME);
     watchResource(ResourceType.EDS, EDS_NAME);
-//    waitForResults();
+    //    waitForResults();
     // verify things came as expected
-      // Verify the right number of responses came and they had the correct resource names
+    // Verify the right number of responses came and they had the correct resource names
     assertEquals(4, responses.size());
     Assert.assertTrue(resourceErrorMap.isEmpty());
 
-    Map<XdsResourceType,String> thingsToCheck = ImmutableMap.of(
-        LDS, serverHostName,
-        RDS, RDS_NAME,
-        CDS, CLUSTER_NAME,
-        EDS, EDS_NAME);
+    Map<XdsResourceType, String> thingsToCheck =
+        ImmutableMap.of(
+            LDS, serverHostName,
+            RDS, RDS_NAME,
+            CDS, CLUSTER_NAME,
+            EDS, EDS_NAME);
     checkSingleNamesPerType(thingsToCheck);
 
     responses.clear();
@@ -229,34 +230,54 @@ public class FakeControlPlaneServiceTest {
     sendStatusCodeUpdate(11, TriggerTime.BEFORE_RDS);
     Assert.assertEquals(Arrays.asList(serverHostName), getResourceNames(LDS));
     Assert.assertEquals(1, resourceErrorMap.get(CDS).size());
-    Assert.assertEquals(11,
-        resourceErrorMap.get(CDS).get(0).getCode().value());
+    Assert.assertEquals(11, resourceErrorMap.get(CDS).get(0).getCode().value());
 
-    Assert.assertTrue("Should not have gotten RDS because of the  error", getResourceNames(RDS) == null);
+    Assert.assertNull("Should not have gotten RDS because of the  error",
+        getResourceNames(RDS));
 
     //    new discovery is handled correctly
+    clearXdsClients();
+    String[] ldsNames = new String[] {"dummy1", serverHostName};
+    Arrays.sort(ldsNames); // For assert comparisons
+    watchResource(ResourceType.LDS, ldsNames);
+    // Should get a response with no resources
+    List<DiscoveryResponse> ldsList = responses.get(LDS.name());
+    Assert.assertNotNull(ldsList);
+    Assert.assertEquals(1, ldsList.size());
+    Assert.assertEquals(0, ldsList.get(0).getResourcesCount());
+
+    setToDefaultConfig(tcpListenerName, serverHostName);
+    Assert.assertEquals(Arrays.asList(ldsNames), getResourceNames(LDS));
   }
 
   private void sendExtraConfiguration(String resName, XdsResourceType type) {
     XdsConfig ldsConfig = generateXdsConfig(resName, type);
-    ExtraResourceRequest request = ExtraResourceRequest.newBuilder()
-        .addConfigurations(ldsConfig)
-        .build();
+    ExtraResourceRequest request =
+        ExtraResourceRequest.newBuilder().addConfigurations(ldsConfig).build();
     controlStub.setExtraResources(request);
   }
 
   private XdsConfig generateXdsConfig(String resName, XdsResourceType type) {
     Message.Builder builder;
     switch (type) {
-      case LDS: builder = Listener.newBuilder().setName(resName);break;
-      case CDS: builder = Cluster.newBuilder().setName(resName);break;
-      case RDS: builder = RouteConfiguration.newBuilder().setName(resName);break;
-      case EDS: builder = ClusterLoadAssignment.newBuilder().setClusterName(resName);break;
-      default: throw new IllegalArgumentException("Unrecognized type: " + type.name());
+      case LDS:
+        builder = Listener.newBuilder().setName(resName);
+        break;
+      case CDS:
+        builder = Cluster.newBuilder().setName(resName);
+        break;
+      case RDS:
+        builder = RouteConfiguration.newBuilder().setName(resName);
+        break;
+      case EDS:
+        builder = ClusterLoadAssignment.newBuilder().setClusterName(resName);
+        break;
+      default:
+        throw new IllegalArgumentException("Unrecognized type: " + type.name());
     }
 
-    XdsConfig.Resource resource = XdsConfig.Resource.newBuilder()
-            .setConfiguration(Any.pack(builder.build())).build();
+    XdsConfig.Resource resource =
+        XdsConfig.Resource.newBuilder().setConfiguration(Any.pack(builder.build())).build();
     return XdsConfig.newBuilder().setType(type).addConfiguration(resource).build();
   }
 
@@ -267,40 +288,42 @@ public class FakeControlPlaneServiceTest {
   }
 
   private void sendCDUpdateForAllResourceTypes(AberrationType type, TriggerTime time) {
-    ControlData controlData = ControlData.newBuilder()
-        .addAllAffectedTypesValue(Arrays.asList(0, 1, 2, 3))
-        .setAberrationType(type)
-        .setTriggerAberration(time)
-        .build();
+    ControlData controlData =
+        ControlData.newBuilder()
+            .addAllAffectedTypesValue(Arrays.asList(0, 1, 2, 3))
+            .setAberrationType(type)
+            .setTriggerAberration(time)
+            .build();
     UpdateControlDataRequest update =
         UpdateControlDataRequest.newBuilder().setControlData(controlData).build();
     controlStub.updateControlData(update);
   }
 
   private void sendStatusCodeUpdate(int code, TriggerTime time) {
-    ControlData controlData = ControlData.newBuilder()
-        .addAllAffectedTypesValue(Arrays.asList(0, 1, 2, 3))
-        .setAberrationType(AberrationType.STATUS_CODE)
-        .setStatusCode(code)
-        .setTriggerAberration(time)
-        .build();
+    ControlData controlData =
+        ControlData.newBuilder()
+            .addAllAffectedTypesValue(Arrays.asList(0, 1, 2, 3))
+            .setAberrationType(AberrationType.STATUS_CODE)
+            .setStatusCode(code)
+            .setTriggerAberration(time)
+            .build();
     UpdateControlDataRequest update =
         UpdateControlDataRequest.newBuilder().setControlData(controlData).build();
     controlStub.updateControlData(update);
   }
 
-  private void checkSingleNamesPerType(Map<XdsResourceType,String> typedResNames)  {
-    for (Map.Entry<XdsResourceType,String> entry : typedResNames.entrySet()) {
+  private void checkSingleNamesPerType(Map<XdsResourceType, String> typedResNames) {
+    for (Map.Entry<XdsResourceType, String> entry : typedResNames.entrySet()) {
       assertEquals(Arrays.asList(entry.getValue()), getResourceNames(entry.getKey()));
       checkRsponseIsExpected(entry.getKey(), entry.getValue());
     }
   }
 
-  private static Message unpackSafely(Any resource, Class<? extends Message > clazz) {
+  private static Message unpackSafely(Any resource, Class<? extends Message> clazz) {
     try {
       return resource.unpack(clazz);
     } catch (InvalidProtocolBufferException e) {
-        return null;
+      return null;
     }
   }
 
@@ -323,23 +346,24 @@ public class FakeControlPlaneServiceTest {
 
     try {
       return name.equals(getName.invoke(msg));
-    } catch (IllegalAccessException|InvocationTargetException e) {
+    } catch (IllegalAccessException | InvocationTargetException e) {
       fail("Cannot get name from message: " + e.getMessage());
       return false;
     }
   }
 
-  private  Message getReceivedResource(String type, String name) {
-    Class<? extends Message > clazz = getMessageClassForXdsType(type);
+  private Message getReceivedResource(String type, String name) {
+    Class<? extends Message> clazz = getMessageClassForXdsType(type);
     try {
       Method getName = getGetNameMethod(clazz);
-      Message resource = responses.get(type).stream()
-          .map(DiscoveryResponse::getResourcesList)
-          .flatMap(List::stream)
-          .map(r -> unpackSafely(r, clazz))
-          .filter(r ->namesMatch(r, name, getName))
-          .findFirst()
-          .orElse(null);
+      Message resource =
+          responses.get(type).stream()
+              .map(DiscoveryResponse::getResourcesList)
+              .flatMap(List::stream)
+              .map(r -> unpackSafely(r, clazz))
+              .filter(r -> namesMatch(r, name, getName))
+              .findFirst()
+              .orElse(null);
 
       return resource;
     } catch (NoSuchMethodException e) {
@@ -356,7 +380,7 @@ public class FakeControlPlaneServiceTest {
 
     List<String> resourceNames = new ArrayList<>();
     try {
-      Class<? extends Message > clazz = getMessageClassForXdsType(type.name());
+      Class<? extends Message> clazz = getMessageClassForXdsType(type.name());
       Method getName = getGetNameMethod(clazz);
 
       for (DiscoveryResponse discoveryResponse : responseList) {
@@ -373,7 +397,7 @@ public class FakeControlPlaneServiceTest {
     return resourceNames;
   }
 
-  private Method getGetNameMethod(Class<? extends Message > clazz) throws NoSuchMethodException {
+  private Method getGetNameMethod(Class<? extends Message> clazz) throws NoSuchMethodException {
     String methodName = "getName";
     if (clazz == ClusterLoadAssignment.class) {
       methodName = "getClusterName";
@@ -381,22 +405,26 @@ public class FakeControlPlaneServiceTest {
     return clazz.getMethod(methodName);
   }
 
-  private static Class<? extends Message > getMessageClassForXdsType(String type) {
-    Class<? extends Message > clazz;
+  private static Class<? extends Message> getMessageClassForXdsType(String type) {
+    Class<? extends Message> clazz;
     switch (type) {
-      case "LDS": clazz = Listener.class; break;
-      case "RDS": clazz = RouteConfiguration.class; break;
-      case "CDS": clazz = Cluster.class; break;
-      case "EDS": clazz = ClusterLoadAssignment.class; break;
+      case "LDS":
+        clazz = Listener.class;
+        break;
+      case "RDS":
+        clazz = RouteConfiguration.class;
+        break;
+      case "CDS":
+        clazz = Cluster.class;
+        break;
+      case "EDS":
+        clazz = ClusterLoadAssignment.class;
+        break;
       default:
         throw new IllegalArgumentException("invalid type: " + type);
     }
     return clazz;
   }
-
-//  private void waitForResults() {
-//    controlPlaneService.waitForSyncContextToDrain();
-//  }
 
   private void watchResource(ResourceType type, String... resources) {
     DiscoveryRequest request = buildDiscoveryRequest(type, Arrays.asList(resources));
@@ -407,12 +435,13 @@ public class FakeControlPlaneServiceTest {
     discoveryWriter.onNext(request);
   }
 
-  private DiscoveryRequest buildDiscoveryRequest(ResourceType cpType, Collection<String> resources) {
+  private DiscoveryRequest buildDiscoveryRequest(
+      ResourceType cpType, Collection<String> resources) {
     AbstractXdsClient.ResourceType type = AbstractXdsClient.ResourceType.valueOf(cpType.name());
     DiscoveryRequest.Builder builder =
         DiscoveryRequest.newBuilder()
             .setVersionInfo("")
-//            .setNode(bootstrapNode.toEnvoyProtoNodeV2())
+            //            .setNode(bootstrapNode.toEnvoyProtoNodeV2())
             .addAllResourceNames(resources)
             .setTypeUrl(type.typeUrl())
             .setResponseNonce("");
@@ -420,62 +449,69 @@ public class FakeControlPlaneServiceTest {
   }
 
   private static Listener clientListener(String name) {
-    HttpFilter httpFilter = HttpFilter.newBuilder()
-        .setName("terminal-filter")
-        .setTypedConfig(Any.pack(Router.newBuilder().build()))
-        .setIsOptional(true)
-        .build();
-    ApiListener apiListener = ApiListener.newBuilder().setApiListener(Any.pack(
-        HttpConnectionManager.newBuilder()
-            .setRds(
-                Rds.newBuilder()
-                    .setRouteConfigName(RDS_NAME)
-                    .setConfigSource(
-                        ConfigSource.newBuilder()
-                            .setAds(AggregatedConfigSource.getDefaultInstance())))
-            .addAllHttpFilters(Collections.singletonList(httpFilter))
-            .build(),
-        HTTP_CONNECTION_MANAGER_TYPE_URL)).build();
-    return Listener.newBuilder()
-        .setName(name)
-        .setApiListener(apiListener).build();
+    HttpFilter httpFilter =
+        HttpFilter.newBuilder()
+            .setName("terminal-filter")
+            .setTypedConfig(Any.pack(Router.newBuilder().build()))
+            .setIsOptional(true)
+            .build();
+    ApiListener apiListener =
+        ApiListener.newBuilder()
+            .setApiListener(
+                Any.pack(
+                    HttpConnectionManager.newBuilder()
+                        .setRds(
+                            Rds.newBuilder()
+                                .setRouteConfigName(RDS_NAME)
+                                .setConfigSource(
+                                    ConfigSource.newBuilder()
+                                        .setAds(AggregatedConfigSource.getDefaultInstance())))
+                        .addAllHttpFilters(Collections.singletonList(httpFilter))
+                        .build(),
+                    HTTP_CONNECTION_MANAGER_TYPE_URL))
+            .build();
+    return Listener.newBuilder().setName(name).setApiListener(apiListener).build();
   }
 
   private static Listener serverListener(String name) {
-    HttpFilter routerFilter = HttpFilter.newBuilder()
-        .setName("terminal-filter")
-        .setTypedConfig(
-            Any.pack(Router.newBuilder().build()))
-        .setIsOptional(true)
-        .build();
-    VirtualHost virtualHost = VirtualHost.newBuilder()
-        .setName("virtual-host-0")
-        .addDomains("*")
-        .addRoutes(
-            Route.newBuilder()
-                .setMatch(
-                    RouteMatch.newBuilder().setPrefix("/").build())
-                .setNonForwardingAction(NonForwardingAction.newBuilder().build())
-                .build()).build();
-    RouteConfiguration routeConfig = RouteConfiguration.newBuilder()
-        .addVirtualHosts(virtualHost)
-        .build();
-    Filter filter = Filter.newBuilder()
-        .setName("network-filter-0")
-        .setTypedConfig(
-            Any.pack(
-                HttpConnectionManager.newBuilder()
-                    .setRouteConfig(routeConfig)
-                    .addAllHttpFilters(Collections.singletonList(routerFilter))
-                    .build())).build();
-    FilterChainMatch filterChainMatch = FilterChainMatch.newBuilder()
-        .setSourceType(FilterChainMatch.ConnectionSourceType.ANY)
-        .build();
-    FilterChain filterChain = FilterChain.newBuilder()
-        .setName("filter-chain-0")
-        .setFilterChainMatch(filterChainMatch)
-        .addFilters(filter)
-        .build();
+    HttpFilter routerFilter =
+        HttpFilter.newBuilder()
+            .setName("terminal-filter")
+            .setTypedConfig(Any.pack(Router.newBuilder().build()))
+            .setIsOptional(true)
+            .build();
+    VirtualHost virtualHost =
+        VirtualHost.newBuilder()
+            .setName("virtual-host-0")
+            .addDomains("*")
+            .addRoutes(
+                Route.newBuilder()
+                    .setMatch(RouteMatch.newBuilder().setPrefix("/").build())
+                    .setNonForwardingAction(NonForwardingAction.newBuilder().build())
+                    .build())
+            .build();
+    RouteConfiguration routeConfig =
+        RouteConfiguration.newBuilder().addVirtualHosts(virtualHost).build();
+    Filter filter =
+        Filter.newBuilder()
+            .setName("network-filter-0")
+            .setTypedConfig(
+                Any.pack(
+                    HttpConnectionManager.newBuilder()
+                        .setRouteConfig(routeConfig)
+                        .addAllHttpFilters(Collections.singletonList(routerFilter))
+                        .build()))
+            .build();
+    FilterChainMatch filterChainMatch =
+        FilterChainMatch.newBuilder()
+            .setSourceType(FilterChainMatch.ConnectionSourceType.ANY)
+            .build();
+    FilterChain filterChain =
+        FilterChain.newBuilder()
+            .setName("filter-chain-0")
+            .setFilterChainMatch(filterChainMatch)
+            .addFilters(filter)
+            .build();
     return Listener.newBuilder()
         .setName(name)
         .setTrafficDirection(TrafficDirection.INBOUND)
@@ -485,12 +521,17 @@ public class FakeControlPlaneServiceTest {
 
   // Sets instance values and call setXdsConfigRpc
   private void setToDefaultConfig(String tcpListenerName, String serverHostName) {
-    ldsMap = new HashMap<>(ImmutableMap.of(
-        tcpListenerName, serverListener(tcpListenerName),
-        serverHostName, clientListener(serverHostName),
-        "dummy1", Listener.newBuilder().setName("dummy1").build(),
-        "dummy2", Listener.newBuilder().setName("dummy2").build()
-    ));
+    ldsMap =
+        new HashMap<>(
+            ImmutableMap.of(
+                tcpListenerName,
+                serverListener(tcpListenerName),
+                serverHostName,
+                clientListener(serverHostName),
+                "dummy1",
+                Listener.newBuilder().setName("dummy1").build(),
+                "dummy2",
+                Listener.newBuilder().setName("dummy2").build()));
 
     // Build RDS map of real value, plus 2 dummy entries
     rdsMap.clear();
@@ -505,11 +546,12 @@ public class FakeControlPlaneServiceTest {
     cdsMap.put(CLUSTER_NAME, cds());
     for (int i = 1; i <= 3; i++) {
       String name = CLUSTER_NAME + i;
-      Cluster cluster = Cluster.newBuilder()
-          .setName(name)
-          .setType(Cluster.DiscoveryType.EDS)
-          .setLbPolicy(Cluster.LbPolicy.ROUND_ROBIN)
-          .build();
+      Cluster cluster =
+          Cluster.newBuilder()
+              .setName(name)
+              .setType(Cluster.DiscoveryType.EDS)
+              .setLbPolicy(Cluster.LbPolicy.ROUND_ROBIN)
+              .build();
       cdsMap.put(name, cluster);
     }
 
@@ -518,14 +560,15 @@ public class FakeControlPlaneServiceTest {
     edsMap.put(EDS_NAME, eds(serverHostName, 1));
     for (int i = 1; i <= 3; i++) {
       String endpointName = EDS_NAME + i;
-      edsMap.put(endpointName,
-          ClusterLoadAssignment.newBuilder().setClusterName(endpointName).build());
+      edsMap.put(
+          endpointName, ClusterLoadAssignment.newBuilder().setClusterName(endpointName).build());
     }
-    controlStub.setXdsConfigRpc(genXdsConfig(LDS));
-    controlStub.setXdsConfigRpc(genXdsConfig(RDS));
-    controlStub.setXdsConfigRpc(genXdsConfig(CDS));
-    controlStub.setXdsConfigRpc(genXdsConfig(EDS));
 
+    for (XdsResourceType type : XdsResourceType.values()) {
+      if (type != UNRECOGNIZED) {
+        controlStub.setXdsConfigRpc(genXdsConfig(type));
+      }
+    }
     controlStub.setExtraResources(ExtraResourceRequest.getDefaultInstance());
     controlStub.updateControlData(UpdateControlDataRequest.getDefaultInstance());
   }
@@ -535,7 +578,8 @@ public class FakeControlPlaneServiceTest {
         new StreamObserver<DiscoveryResponse>() {
           @Override
           public void onNext(final DiscoveryResponse response) {
-            AbstractXdsClient.ResourceType type = AbstractXdsClient.ResourceType.fromTypeUrl(response.getTypeUrl());
+            AbstractXdsClient.ResourceType type =
+                AbstractXdsClient.ResourceType.fromTypeUrl(response.getTypeUrl());
             responses.computeIfAbsent(type.name(), l -> new ArrayList<>()).add(response);
           }
 
@@ -550,9 +594,13 @@ public class FakeControlPlaneServiceTest {
 
           @Override
           public void onCompleted() {
-            logger.log(Level.FINE, "Completed was called");
-            discoveryWriter.onCompleted();
+            logger.log(Level.FINE, "Completed was called: "+ discoveryWriter);
+            if (discoveryWriter == null) {
+              return;
+            }
+            StreamObserver<DiscoveryRequest> oldWriter = discoveryWriter;
             discoveryWriter = null;
+            oldWriter.onCompleted();
           }
         };
     return responseReader;
@@ -560,26 +608,42 @@ public class FakeControlPlaneServiceTest {
 
   private void addStatusToErrors(StatusRuntimeException t) {
     Status status = t.getStatus();
+    if (status == null || status.getDescription() == null) {
+      fail("Malformed error received");
+    }
     int lastSpace = status.getDescription().lastIndexOf(' ');
-    String rt = status.getDescription().substring(lastSpace+1);
+    String rt = status.getDescription().substring(lastSpace + 1);
     XdsResourceType type = XdsTestControlPlaneExternalService.convertStringToType(rt);
     List<Status> statuses = resourceErrorMap.computeIfAbsent(type, l -> new ArrayList<>());
     statuses.add(status);
   }
 
   private XdsConfig genXdsConfig(XdsResourceType type) {
+    if (type == UNRECOGNIZED) {
+      return null;
+    }
     XdsConfig.Builder xdsConfigBuilder = XdsConfig.newBuilder().setType(type);
 
     Map<String, Message> messageMap;
     switch (type) {
-      case LDS: messageMap = ldsMap; break;
-      case RDS: messageMap = rdsMap; break;
-      case CDS: messageMap = cdsMap; break;
-      case EDS: messageMap = edsMap; break;
-      default: throw new IllegalArgumentException();
+      case LDS:
+        messageMap = ldsMap;
+        break;
+      case RDS:
+        messageMap = rdsMap;
+        break;
+      case CDS:
+        messageMap = cdsMap;
+        break;
+      case EDS:
+        messageMap = edsMap;
+        break;
+      default:
+        throw new IllegalArgumentException();
     }
     for (Map.Entry<String, Message> entry : messageMap.entrySet()) {
-      xdsConfigBuilder.addConfigurationBuilder()
+      xdsConfigBuilder
+          .addConfigurationBuilder()
           .setName(entry.getKey())
           .setConfiguration(Any.pack(entry.getValue()));
     }
@@ -588,14 +652,15 @@ public class FakeControlPlaneServiceTest {
   }
 
   private static RouteConfiguration rds(String name, String authority) {
-    VirtualHost virtualHost = VirtualHost.newBuilder()
-        .addDomains(authority)
-        .addRoutes(
-            Route.newBuilder()
-                .setMatch(
-                    RouteMatch.newBuilder().setPrefix("/").build())
-                .setRoute(
-                    RouteAction.newBuilder().setCluster(CLUSTER_NAME).build()).build()).build();
+    VirtualHost virtualHost =
+        VirtualHost.newBuilder()
+            .addDomains(authority)
+            .addRoutes(
+                Route.newBuilder()
+                    .setMatch(RouteMatch.newBuilder().setPrefix("/").build())
+                    .setRoute(RouteAction.newBuilder().setCluster(CLUSTER_NAME).build())
+                    .build())
+            .build();
     return RouteConfiguration.newBuilder().setName(name).addVirtualHosts(virtualHost).build();
   }
 
@@ -616,22 +681,24 @@ public class FakeControlPlaneServiceTest {
   }
 
   private static ClusterLoadAssignment eds(String hostName, int port) {
-    Address address = Address.newBuilder()
-        .setSocketAddress(
-            SocketAddress.newBuilder().setAddress(hostName).setPortValue(port).build()).build();
-    LocalityLbEndpoints endpoints = LocalityLbEndpoints.newBuilder()
-        .setLoadBalancingWeight(UInt32Value.of(10))
-        .setPriority(0)
-        .addLbEndpoints(
-            LbEndpoint.newBuilder()
-                .setEndpoint(
-                    Endpoint.newBuilder().setAddress(address).build())
-                .setHealthStatus(HealthStatus.HEALTHY)
-                .build()).build();
+    Address address =
+        Address.newBuilder()
+            .setSocketAddress(
+                SocketAddress.newBuilder().setAddress(hostName).setPortValue(port).build())
+            .build();
+    LocalityLbEndpoints endpoints =
+        LocalityLbEndpoints.newBuilder()
+            .setLoadBalancingWeight(UInt32Value.of(10))
+            .setPriority(0)
+            .addLbEndpoints(
+                LbEndpoint.newBuilder()
+                    .setEndpoint(Endpoint.newBuilder().setAddress(address).build())
+                    .setHealthStatus(HealthStatus.HEALTHY)
+                    .build())
+            .build();
     return ClusterLoadAssignment.newBuilder()
         .setClusterName(EDS_NAME)
         .addEndpoints(endpoints)
         .build();
   }
-
 }
