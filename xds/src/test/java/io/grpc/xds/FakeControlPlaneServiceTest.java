@@ -209,7 +209,7 @@ public class FakeControlPlaneServiceTest {
     checkSingleNamesPerType(ImmutableMap.of(LDS, serverHostName));
     Assert.assertTrue(resourceErrorMap.isEmpty());
 
-    // TODO try each type of control data and make sure
+    // try each type of control data and make sure
     //    updates are propagated correctly
     responses.clear();
     sendExtraConfiguration("dummy1", LDS);
@@ -228,11 +228,15 @@ public class FakeControlPlaneServiceTest {
 
     responses.clear();
     int targetCode = 11;
-    sendStatusCodeUpdate(targetCode, TriggerTime.BEFORE_ENDPOINTS);
+    sendStatusCodeUpdate(targetCode, TriggerTime.BEFORE_CDS);
     Assert.assertEquals(Arrays.asList(serverHostName), getResourceNames(LDS));
-    Assert.assertEquals(1, resourceErrorMap.get(CDS).size());
-    Assert.assertEquals(targetCode, resourceErrorMap.get(CDS).get(0).getCode().value());
+    Assert.assertEquals(1, resourceErrorMap.get(RDS).size());
+    Assert.assertEquals(targetCode, resourceErrorMap.get(RDS).get(0).getCode().value());
     Assert.assertNotNull(getResourceNames(RDS));
+    Assert.assertNull("Should not have gotten CDS because of the  error. ",
+        getResourceNames(CDS));
+    // Verify request of CDS gets error but no resources
+    watchResource(ResourceType.CDS, CLUSTER_NAME);
     Assert.assertNull("Should not have gotten CDS because of the  error. ",
         getResourceNames(CDS));
 
