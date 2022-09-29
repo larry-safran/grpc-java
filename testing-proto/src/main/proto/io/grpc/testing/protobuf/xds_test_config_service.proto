@@ -70,8 +70,8 @@ message AckResponse {
 
 enum TriggerTime{
   BEFORE_LDS = 0;
-  BEFORE_CDS = 1;
-  BEFORE_RDS = 2;
+  BEFORE_RDS = 1;
+  BEFORE_CDS = 2;
   BEFORE_ENDPOINTS = 3;
   AFTER_ENDPOINTS = 4;
 }
@@ -85,8 +85,8 @@ enum ExtraResourceChoice {
 // TODO change this to XdsResourceType
 enum XdsResourceType {
   LDS = 0;
-  CDS = 1;
-  RDS = 2;
+  RDS = 1;
+  CDS = 2;
   EDS = 3;
 }
 

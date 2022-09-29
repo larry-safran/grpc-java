@@ -227,13 +227,14 @@ public class FakeControlPlaneServiceTest {
     Assert.assertEquals(Arrays.asList(serverHostName, serverHostName), getResourceNames(LDS));
 
     responses.clear();
-    sendStatusCodeUpdate(11, TriggerTime.BEFORE_RDS);
+    int targetCode = 11;
+    sendStatusCodeUpdate(targetCode, TriggerTime.BEFORE_ENDPOINTS);
     Assert.assertEquals(Arrays.asList(serverHostName), getResourceNames(LDS));
     Assert.assertEquals(1, resourceErrorMap.get(CDS).size());
-    Assert.assertEquals(11, resourceErrorMap.get(CDS).get(0).getCode().value());
-
-    Assert.assertNull("Should not have gotten RDS because of the  error",
-        getResourceNames(RDS));
+    Assert.assertEquals(targetCode, resourceErrorMap.get(CDS).get(0).getCode().value());
+    Assert.assertNotNull(getResourceNames(RDS));
+    Assert.assertNull("Should not have gotten CDS because of the  error. ",
+        getResourceNames(CDS));
 
     //    new discovery is handled correctly
     clearXdsClients();
@@ -263,11 +264,11 @@ public class FakeControlPlaneServiceTest {
       case LDS:
         builder = Listener.newBuilder().setName(resName);
         break;
-      case CDS:
-        builder = Cluster.newBuilder().setName(resName);
-        break;
       case RDS:
         builder = RouteConfiguration.newBuilder().setName(resName);
+        break;
+      case CDS:
+        builder = Cluster.newBuilder().setName(resName);
         break;
       case EDS:
         builder = ClusterLoadAssignment.newBuilder().setClusterName(resName);

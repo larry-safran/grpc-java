@@ -56,7 +56,7 @@ import java.util.logging.Logger;
  * return: - Status code as specified - Extra data - Redundant data - Missing data
  *
  * <p>We are specifying a single value representing the time a modification begin. It will apply to
- * all types after the specified time with resource types having the order: LDS, RDS, CDS, EDS Note
+ * all types after the specified time with resource types having the order: LDS, RDS, CDS, EDS. Note
  * that "after EDS" means that all resource types will be returned normally and then the aberation
  * will be applied if applicable
  */
@@ -68,7 +68,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
   private ControlData controlData;
   private final Map<String, Map<String, Message>> extraXdsResources = new HashMap<>();
   private final String[] allResourceTypes =
-      new String[] {ADS_TYPE_URL_LDS, ADS_TYPE_URL_CDS, ADS_TYPE_URL_RDS, ADS_TYPE_URL_EDS};
+      new String[] {ADS_TYPE_URL_LDS, ADS_TYPE_URL_RDS, ADS_TYPE_URL_CDS, ADS_TYPE_URL_EDS};
 
   public void setXdsConfigRpc(XdsConfig value, StreamObserver<AckResponse> responseObserver) {
     syncContext.execute(
@@ -160,10 +160,10 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
     switch (type) {
       case ADS_TYPE_URL_LDS:
         return XdsResourceType.LDS;
-      case ADS_TYPE_URL_CDS:
-        return XdsResourceType.CDS;
       case ADS_TYPE_URL_RDS:
         return XdsResourceType.RDS;
+      case ADS_TYPE_URL_CDS:
+        return XdsResourceType.CDS;
       case ADS_TYPE_URL_EDS:
         return XdsResourceType.EDS;
       default:
@@ -337,10 +337,10 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
 
     switch (type) {
       case ADS_TYPE_URL_LDS:
-        return controlData.getTriggerAberration().equals(TriggerTime.BEFORE_CDS);
-      case ADS_TYPE_URL_CDS:
         return controlData.getTriggerAberration().equals(TriggerTime.BEFORE_RDS);
       case ADS_TYPE_URL_RDS:
+        return controlData.getTriggerAberration().equals(TriggerTime.BEFORE_CDS);
+      case ADS_TYPE_URL_CDS:
         return controlData.getTriggerAberration().equals(TriggerTime.BEFORE_ENDPOINTS);
       case ADS_TYPE_URL_EDS:
         return controlData.getTriggerAberration().equals(TriggerTime.AFTER_ENDPOINTS);
@@ -408,10 +408,10 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
     switch (resourceType) {
       case ADS_TYPE_URL_LDS:
         return triggerAberrationTime > TriggerTime.BEFORE_LDS_VALUE;
-      case ADS_TYPE_URL_CDS:
-        return triggerAberrationTime > TriggerTime.BEFORE_CDS_VALUE;
       case ADS_TYPE_URL_RDS:
         return triggerAberrationTime > TriggerTime.BEFORE_RDS_VALUE;
+      case ADS_TYPE_URL_CDS:
+        return triggerAberrationTime > TriggerTime.BEFORE_CDS_VALUE;
       case ADS_TYPE_URL_EDS:
         return triggerAberrationTime > TriggerTime.BEFORE_ENDPOINTS_VALUE;
       default:
@@ -423,10 +423,10 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
     switch (type) {
       case LDS:
         return ADS_TYPE_URL_LDS;
-      case CDS:
-        return ADS_TYPE_URL_CDS;
       case RDS:
         return ADS_TYPE_URL_RDS;
+      case CDS:
+        return ADS_TYPE_URL_CDS;
       case EDS:
         return ADS_TYPE_URL_EDS;
       default:
@@ -438,10 +438,10 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
     switch (type) {
       case ADS_TYPE_URL_LDS:
         return Listener.class;
-      case ADS_TYPE_URL_CDS:
-        return Cluster.class;
       case ADS_TYPE_URL_RDS:
         return RouteConfiguration.class;
+      case ADS_TYPE_URL_CDS:
+        return Cluster.class;
       case ADS_TYPE_URL_EDS:
         return ClusterLoadAssignment.class;
       default:
