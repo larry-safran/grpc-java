@@ -111,6 +111,37 @@ public final class XdsTestConfigServiceGrpc {
     return getSetExtraResourcesMethod;
   }
 
+  private static volatile io.grpc.MethodDescriptor<com.google.protobuf.Empty,
+      io.grpc.testing.protobuf.AckResponse> getClearMethod;
+
+  @io.grpc.stub.annotations.RpcMethod(
+      fullMethodName = SERVICE_NAME + '/' + "clear",
+      requestType = com.google.protobuf.Empty.class,
+      responseType = io.grpc.testing.protobuf.AckResponse.class,
+      methodType = io.grpc.MethodDescriptor.MethodType.UNARY)
+  public static io.grpc.MethodDescriptor<com.google.protobuf.Empty,
+      io.grpc.testing.protobuf.AckResponse> getClearMethod() {
+    io.grpc.MethodDescriptor<com.google.protobuf.Empty, io.grpc.testing.protobuf.AckResponse> getClearMethod;
+    if ((getClearMethod = XdsTestConfigServiceGrpc.getClearMethod) == null) {
+      synchronized (XdsTestConfigServiceGrpc.class) {
+        if ((getClearMethod = XdsTestConfigServiceGrpc.getClearMethod) == null) {
+          XdsTestConfigServiceGrpc.getClearMethod = getClearMethod =
+              io.grpc.MethodDescriptor.<com.google.protobuf.Empty, io.grpc.testing.protobuf.AckResponse>newBuilder()
+              .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "clear"))
+              .setSampledToLocalTracing(true)
+              .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  com.google.protobuf.Empty.getDefaultInstance()))
+              .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
+                  io.grpc.testing.protobuf.AckResponse.getDefaultInstance()))
+              .setSchemaDescriptor(new XdsTestConfigServiceMethodDescriptorSupplier("clear"))
+              .build();
+        }
+      }
+    }
+    return getClearMethod;
+  }
+
   /**
    * Creates a new async stub that supports all call types for the service
    */
@@ -192,6 +223,13 @@ public final class XdsTestConfigServiceGrpc {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getSetExtraResourcesMethod(), responseObserver);
     }
 
+    /**
+     */
+    public void clear(com.google.protobuf.Empty request,
+        io.grpc.stub.StreamObserver<io.grpc.testing.protobuf.AckResponse> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getClearMethod(), responseObserver);
+    }
+
     @java.lang.Override public final io.grpc.ServerServiceDefinition bindService() {
       return io.grpc.ServerServiceDefinition.builder(getServiceDescriptor())
           .addMethod(
@@ -215,6 +253,13 @@ public final class XdsTestConfigServiceGrpc {
                 io.grpc.testing.protobuf.ExtraResourceRequest,
                 io.grpc.testing.protobuf.AckResponse>(
                   this, METHODID_SET_EXTRA_RESOURCES)))
+          .addMethod(
+            getClearMethod(),
+            io.grpc.stub.ServerCalls.asyncUnaryCall(
+              new MethodHandlers<
+                com.google.protobuf.Empty,
+                io.grpc.testing.protobuf.AckResponse>(
+                  this, METHODID_CLEAR)))
           .build();
     }
   }
@@ -268,6 +313,14 @@ public final class XdsTestConfigServiceGrpc {
       io.grpc.stub.ClientCalls.asyncUnaryCall(
           getChannel().newCall(getSetExtraResourcesMethod(), getCallOptions()), request, responseObserver);
     }
+
+    /**
+     */
+    public void clear(com.google.protobuf.Empty request,
+        io.grpc.stub.StreamObserver<io.grpc.testing.protobuf.AckResponse> responseObserver) {
+      io.grpc.stub.ClientCalls.asyncUnaryCall(
+          getChannel().newCall(getClearMethod(), getCallOptions()), request, responseObserver);
+    }
   }
 
   /**
@@ -315,6 +368,13 @@ public final class XdsTestConfigServiceGrpc {
     public io.grpc.testing.protobuf.AckResponse setExtraResources(io.grpc.testing.protobuf.ExtraResourceRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getSetExtraResourcesMethod(), getCallOptions(), request);
+    }
+
+    /**
+     */
+    public io.grpc.testing.protobuf.AckResponse clear(com.google.protobuf.Empty request) {
+      return io.grpc.stub.ClientCalls.blockingUnaryCall(
+          getChannel(), getClearMethod(), getCallOptions(), request);
     }
   }
 
@@ -367,11 +427,20 @@ public final class XdsTestConfigServiceGrpc {
       return io.grpc.stub.ClientCalls.futureUnaryCall(
           getChannel().newCall(getSetExtraResourcesMethod(), getCallOptions()), request);
     }
+
+    /**
+     */
+    public com.google.common.util.concurrent.ListenableFuture<io.grpc.testing.protobuf.AckResponse> clear(
+        com.google.protobuf.Empty request) {
+      return io.grpc.stub.ClientCalls.futureUnaryCall(
+          getChannel().newCall(getClearMethod(), getCallOptions()), request);
+    }
   }
 
   private static final int METHODID_SET_XDS_CONFIG_RPC = 0;
   private static final int METHODID_UPDATE_CONTROL_DATA = 1;
   private static final int METHODID_SET_EXTRA_RESOURCES = 2;
+  private static final int METHODID_CLEAR = 3;
 
   private static final class MethodHandlers<Req, Resp> implements
       io.grpc.stub.ServerCalls.UnaryMethod<Req, Resp>,
@@ -402,6 +471,10 @@ public final class XdsTestConfigServiceGrpc {
           serviceImpl.setExtraResources((io.grpc.testing.protobuf.ExtraResourceRequest) request,
               (io.grpc.stub.StreamObserver<io.grpc.testing.protobuf.AckResponse>) responseObserver);
           break;
+        case METHODID_CLEAR:
+          serviceImpl.clear((com.google.protobuf.Empty) request,
+              (io.grpc.stub.StreamObserver<io.grpc.testing.protobuf.AckResponse>) responseObserver);
+          break;
         default:
           throw new AssertionError();
       }
@@ -424,7 +497,7 @@ public final class XdsTestConfigServiceGrpc {
 
     @java.lang.Override
     public com.google.protobuf.Descriptors.FileDescriptor getFileDescriptor() {
-      return io.grpc.testing.protobuf.XdsTestConfigServiceOuterClass.getDescriptor();
+      return io.grpc.testing.protobuf.XdsTestConfigServiceProto.getDescriptor();
     }
 
     @java.lang.Override
@@ -466,6 +539,7 @@ public final class XdsTestConfigServiceGrpc {
               .addMethod(getSetXdsConfigRpcMethod())
               .addMethod(getUpdateControlDataMethod())
               .addMethod(getSetExtraResourcesMethod())
+              .addMethod(getClearMethod())
               .build();
         }
       }
