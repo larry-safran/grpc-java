@@ -16,11 +16,11 @@
 
 package io.grpc.xds;
 
-import static io.grpc.testing.protobuf.XdsResourceType.CDS;
-import static io.grpc.testing.protobuf.XdsResourceType.EDS;
-import static io.grpc.testing.protobuf.XdsResourceType.LDS;
-import static io.grpc.testing.protobuf.XdsResourceType.RDS;
-import static io.grpc.testing.protobuf.XdsResourceType.UNRECOGNIZED;
+import static io.grpc.testing.protobuf.XdsTestResourceType.CDS;
+import static io.grpc.testing.protobuf.XdsTestResourceType.EDS;
+import static io.grpc.testing.protobuf.XdsTestResourceType.LDS;
+import static io.grpc.testing.protobuf.XdsTestResourceType.RDS;
+import static io.grpc.testing.protobuf.XdsTestResourceType.UNRECOGNIZED;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -74,7 +74,7 @@ import io.grpc.testing.protobuf.ResourceType;
 import io.grpc.testing.protobuf.TriggerTime;
 import io.grpc.testing.protobuf.UpdateControlDataRequest;
 import io.grpc.testing.protobuf.XdsConfig;
-import io.grpc.testing.protobuf.XdsResourceType;
+import io.grpc.testing.protobuf.XdsTestResourceType;
 import io.grpc.testing.protobuf.XdsTestConfigServiceGrpc;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -146,7 +146,7 @@ public class FakeControlPlaneServiceTest {
 
   // Tracking changes
   protected Map<String, List<DiscoveryResponse>> responses = new HashMap<>();
-  protected Map<XdsResourceType, List<Status>> resourceErrorMap = new HashMap<>();
+  protected Map<XdsTestResourceType, List<Status>> resourceErrorMap = new HashMap<>();
 
   /** Start control plane server and get control plane port. */
   @Before
@@ -190,7 +190,7 @@ public class FakeControlPlaneServiceTest {
     assertEquals(4, responses.size());
     Assert.assertTrue(resourceErrorMap.isEmpty());
 
-    Map<XdsResourceType, String> thingsToCheck =
+    Map<XdsTestResourceType, String> thingsToCheck =
         ImmutableMap.of(
             LDS, serverHostName,
             RDS, RDS_NAME,
@@ -255,14 +255,14 @@ public class FakeControlPlaneServiceTest {
     Assert.assertEquals(Arrays.asList(ldsNames), getResourceNames(LDS));
   }
 
-  private void sendExtraConfiguration(String resName, XdsResourceType type) {
+  private void sendExtraConfiguration(String resName, XdsTestResourceType type) {
     XdsConfig ldsConfig = generateXdsConfig(resName, type);
     ExtraResourceRequest request =
         ExtraResourceRequest.newBuilder().addConfigurations(ldsConfig).build();
     controlStub.setExtraResources(request);
   }
 
-  private XdsConfig generateXdsConfig(String resName, XdsResourceType type) {
+  private XdsConfig generateXdsConfig(String resName, XdsTestResourceType type) {
     Message.Builder builder;
     switch (type) {
       case LDS:
@@ -317,8 +317,8 @@ public class FakeControlPlaneServiceTest {
     controlStub.updateControlData(update);
   }
 
-  private void checkSingleNamesPerType(Map<XdsResourceType, String> typedResNames) {
-    for (Map.Entry<XdsResourceType, String> entry : typedResNames.entrySet()) {
+  private void checkSingleNamesPerType(Map<XdsTestResourceType, String> typedResNames) {
+    for (Map.Entry<XdsTestResourceType, String> entry : typedResNames.entrySet()) {
       assertEquals(Arrays.asList(entry.getValue()), getResourceNames(entry.getKey()));
       checkRsponseIsExpected(entry.getKey(), entry.getValue());
     }
@@ -332,7 +332,7 @@ public class FakeControlPlaneServiceTest {
     }
   }
 
-  private void checkRsponseIsExpected(XdsResourceType type, String name) {
+  private void checkRsponseIsExpected(XdsTestResourceType type, String name) {
     Message fromServer = controlPlaneService.getResource(type, name);
     Message received = getReceivedResource(type.name(), name);
     String fromString = (fromServer == null) ? null : fromServer.toString();
@@ -377,7 +377,7 @@ public class FakeControlPlaneServiceTest {
     }
   }
 
-  private List<String> getResourceNames(XdsResourceType type) {
+  private List<String> getResourceNames(XdsTestResourceType type) {
     List<DiscoveryResponse> responseList = this.responses.get(type.name());
     if (responseList == null) {
       return null;
@@ -569,7 +569,7 @@ public class FakeControlPlaneServiceTest {
           endpointName, ClusterLoadAssignment.newBuilder().setClusterName(endpointName).build());
     }
 
-    for (XdsResourceType type : XdsResourceType.values()) {
+    for (XdsTestResourceType type : XdsTestResourceType.values()) {
       if (type != UNRECOGNIZED) {
         controlStub.setXdsConfigRpc(genXdsConfig(type));
       }
@@ -618,12 +618,12 @@ public class FakeControlPlaneServiceTest {
     }
     int lastSpace = status.getDescription().lastIndexOf(' ');
     String rt = status.getDescription().substring(lastSpace + 1);
-    XdsResourceType type = XdsTestControlPlaneExternalService.convertStringToType(rt);
+    XdsTestResourceType type = XdsTestControlPlaneExternalService.convertStringToType(rt);
     List<Status> statuses = resourceErrorMap.computeIfAbsent(type, l -> new ArrayList<>());
     statuses.add(status);
   }
 
-  private XdsConfig genXdsConfig(XdsResourceType type) {
+  private XdsConfig genXdsConfig(XdsTestResourceType type) {
     if (type == UNRECOGNIZED) {
       return null;
     }

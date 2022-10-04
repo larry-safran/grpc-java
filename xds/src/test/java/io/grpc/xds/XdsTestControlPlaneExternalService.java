@@ -37,7 +37,7 @@ import io.grpc.testing.protobuf.ExtraResourceRequest;
 import io.grpc.testing.protobuf.TriggerTime;
 import io.grpc.testing.protobuf.UpdateControlDataRequest;
 import io.grpc.testing.protobuf.XdsConfig;
-import io.grpc.testing.protobuf.XdsResourceType;
+import io.grpc.testing.protobuf.XdsTestResourceType;
 import io.grpc.testing.protobuf.XdsTestConfigServiceGrpc;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -156,18 +156,18 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
         });
   }
 
-  public static XdsResourceType convertStringToType(String type) {
+  public static XdsTestResourceType convertStringToType(String type) {
     switch (type) {
       case ADS_TYPE_URL_LDS:
-        return XdsResourceType.LDS;
+        return XdsTestResourceType.LDS;
       case ADS_TYPE_URL_RDS:
-        return XdsResourceType.RDS;
+        return XdsTestResourceType.RDS;
       case ADS_TYPE_URL_CDS:
-        return XdsResourceType.CDS;
+        return XdsTestResourceType.CDS;
       case ADS_TYPE_URL_EDS:
-        return XdsResourceType.EDS;
+        return XdsTestResourceType.EDS;
       default:
-        return XdsResourceType.UNRECOGNIZED;
+        return XdsTestResourceType.UNRECOGNIZED;
     }
   }
 
@@ -353,7 +353,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
     if (controlData == null) {
       return false;
     }
-    XdsResourceType resType = convertStringToType(resourceType);
+    XdsTestResourceType resType = convertStringToType(resourceType);
     return controlData.getAffectedTypesList().isEmpty()
         || controlData.getAffectedTypesList().contains(resType);
   }
@@ -419,7 +419,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
     }
   }
 
-  private String convertTypeToString(XdsResourceType type) {
+  private String convertTypeToString(XdsTestResourceType type) {
     switch (type) {
       case LDS:
         return ADS_TYPE_URL_LDS;
@@ -461,7 +461,7 @@ class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
         });
   }
 
-  public Message getResource(XdsResourceType type, String resourceName) {
+  public Message getResource(XdsTestResourceType type, String resourceName) {
     HashMap<String, Message> resourceMap = getXdsResources().get(convertTypeToString(type));
     return (resourceMap != null) ? resourceMap.get(resourceName) : null;
   }
