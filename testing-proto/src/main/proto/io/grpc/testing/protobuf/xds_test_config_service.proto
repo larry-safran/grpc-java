@@ -47,7 +47,7 @@ message XdsConfig {
     google.protobuf.Any configuration = 2;
   }
 
-  XdsResourceType type = 1;
+  XdsTestResourceType type = 1;
   repeated Resource configuration = 2;
 }
 
@@ -82,8 +82,7 @@ enum ExtraResourceChoice {
   SOME_REQ = 2;  //replace as many required as there are extra so total number is what was expected
 }
 
-// TODO change this to XdsResourceType
-enum XdsResourceType {
+enum XdsTestResourceType {
   LDS = 0;
   RDS = 1;
   CDS = 2;
@@ -103,6 +102,6 @@ message ControlData {
   TriggerTime trigger_aberration = 1;
   AberrationType aberration_type = 2;
   int32 status_code = 3;
-  repeated XdsResourceType affected_types = 4;
+  repeated XdsTestResourceType affected_types = 4;
   repeated string names_to_skip = 5;
 }
