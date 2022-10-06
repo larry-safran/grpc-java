@@ -133,6 +133,13 @@ def test_server = tasks.register("test_server", CreateStartScripts) {
     classpath = startScriptsClasspath.get()
 }
 
+def test_control_plane = tasks.register("test_control_plane", CreateStartScripts) {
+    mainClass = "io.grpc.testing.integration.TestControlPlane"
+    applicationName = "test-control-plane"
+    outputDir = new File(project.buildDir, 'tmp/scripts/' + name)
+    classpath = startScriptsClasspath.get()
+}
+
 def reconnect_test_client = tasks.register("reconnect_test_client", CreateStartScripts) {
     mainClass = "io.grpc.testing.integration.ReconnectTestClient"
     applicationName = "reconnect-test-client"
@@ -195,6 +202,7 @@ def xds_test_server = tasks.register("xds_test_server", CreateStartScripts) {
 distributions.shadow.contents.into("bin") {
     from(test_client)
     from(test_server)
+    from(test_control_plane)
     from(reconnect_test_client)
     from(stresstest_client)
     from(http2_client)

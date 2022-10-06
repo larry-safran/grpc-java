@@ -7,6 +7,7 @@ readonly TEST_DRIVER_INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/${TES
 ## xDS test server/client Docker images
 readonly SERVER_IMAGE_NAME="gcr.io/grpc-testing/xds-interop/java-server"
 readonly CLIENT_IMAGE_NAME="gcr.io/grpc-testing/xds-interop/java-client"
+readonly CONTOL_PLANE_IMAGE_NAME="gcr.io/grpc-testing/xds-interop/test-control-plane"
 readonly FORCE_IMAGE_BUILD="${FORCE_IMAGE_BUILD:-0}"
 readonly BUILD_APP_PATH="interop-testing/build/install/grpc-interop-testing"
 
@@ -18,7 +19,8 @@ readonly BUILD_APP_PATH="interop-testing/build/install/grpc-interop-testing"
 # Arguments:
 #   None
 # Outputs:
-#   Writes the output of xds-test-client and xds-test-server --help to stderr
+#   Writes the output of xds-test-client, xds-test-server and xds-test-control-plane --help to
+#   stderr
 #######################################
 build_java_test_app() {
   echo "Building Java test app"
@@ -30,6 +32,7 @@ build_java_test_app() {
   # Test-run binaries
   run_ignore_exit_code "${SRC_DIR}/${BUILD_APP_PATH}/bin/xds-test-client" --help
   run_ignore_exit_code "${SRC_DIR}/${BUILD_APP_PATH}/bin/xds-test-server" --help
+  run_ignore_exit_code "${SRC_DIR}/${BUILD_APP_PATH}/bin/xds-test-control-plane" --help
 }
 
 #######################################
@@ -38,6 +41,7 @@ build_java_test_app() {
 #   BUILD_APP_PATH
 #   SERVER_IMAGE_NAME: Test server Docker image name
 #   CLIENT_IMAGE_NAME: Test client Docker image name
+#   CONTROL_PLANE_IMAGE_NAME: Fake control plane for tests Docker image name
 #   GIT_COMMIT: SHA-1 of git commit being built
 #   TESTING_VERSION: version branch under test, f.e. v1.42.x, master
 # Arguments:
@@ -62,7 +66,7 @@ build_test_app_docker_images() {
   # Run Google Cloud Build
   gcloud builds submit "${build_dir}" \
     --config "${docker_dir}/cloudbuild.yaml" \
-    --substitutions "_SERVER_IMAGE_NAME=${SERVER_IMAGE_NAME},_CLIENT_IMAGE_NAME=${CLIENT_IMAGE_NAME},COMMIT_SHA=${GIT_COMMIT},BRANCH_NAME=${branch_name}"
+    --substitutions "_SERVER_IMAGE_NAME=${SERVER_IMAGE_NAME},_CLIENT_IMAGE_NAME=${CLIENT_IMAGE_NAME},_CONTROL_PLANE_IMAGE_NAME=${CONTROL_PLANE_IMAGE_NAME},COMMIT_SHA=${GIT_COMMIT},BRANCH_NAME=${branch_name}"
   # TODO(sergiitk): extra "cosmetic" tags for versioned branches, e.g. v1.34.x
   # TODO(sergiitk): do this when adding support for custom configs per version
 }
@@ -72,6 +76,7 @@ build_test_app_docker_images() {
 # Globals:
 #   SERVER_IMAGE_NAME: Test server Docker image name
 #   CLIENT_IMAGE_NAME: Test client Docker image name
+#   CONTROL_PLANE_IMAGE_NAME: Fake control plane for tests Docker image name
 #   GIT_COMMIT: SHA-1 of git commit being built
 #   FORCE_IMAGE_BUILD
 # Arguments:
@@ -89,8 +94,12 @@ build_docker_images_if_needed() {
   printf "Client image: %s:%s\n" "${CLIENT_IMAGE_NAME}" "${GIT_COMMIT}"
   echo "${client_tags:-Client image not found}"
 
+  cp_tags="$(gcloud_gcr_list_image_tags "${CONTROL_PLANE_IMAGE_NAME}" "${GIT_COMMIT}")"
+  printf "Server image: %s:%s\n" "${CONTROL_PLANE_IMAGE_NAME}" "${GIT_COMMIT}"
+  echo "${cp_tags:-Fake Control Plane image not found}"
+
   # Build if any of the images are missing, or FORCE_IMAGE_BUILD=1
-  if [[ "${FORCE_IMAGE_BUILD}" == "1" || -z "${server_tags}" || -z "${client_tags}" ]]; then
+  if [[ "${FORCE_IMAGE_BUILD}" == "1" || -z "${server_tags}" || -z "${client_tags}" || -z "${cp_tags}" ]]; then
     build_java_test_app
     build_test_app_docker_images
   else
@@ -107,6 +116,7 @@ build_docker_images_if_needed() {
 #   TEST_XML_OUTPUT_DIR: Output directory for the test xUnit XML report
 #   SERVER_IMAGE_NAME: Test server Docker image name
 #   CLIENT_IMAGE_NAME: Test client Docker image name
+#   CONTROL_PLANE_IMAGE_NAME: Fake control plane for tests Docker image name
 #   GIT_COMMIT: SHA-1 of git commit being built
 # Arguments:
 #   Test case name
@@ -125,6 +135,7 @@ run_test() {
     --secondary_kube_context="${SECONDARY_KUBE_CONTEXT}" \
     --server_image="${SERVER_IMAGE_NAME}:${GIT_COMMIT}" \
     --client_image="${CLIENT_IMAGE_NAME}:${GIT_COMMIT}" \
+    --control_plane_image="${CONTROL_PLANE_IMAGE_NAME}:${GIT_COMMIT}" \
     --testing_version="${TESTING_VERSION}" \
     --xml_output_file="${TEST_XML_OUTPUT_DIR}/${test_name}/sponge_log.xml" \
     --force_cleanup

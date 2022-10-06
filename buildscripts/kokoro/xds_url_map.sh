@@ -18,7 +18,8 @@ readonly BUILD_APP_PATH="interop-testing/build/install/grpc-interop-testing"
 # Arguments:
 #   None
 # Outputs:
-#   Writes the output of xds-test-client and xds-test-server --help to stderr
+#   Writes the output of xds-test-client, xds-test-server and xds-test-control-plane --help to
+#   stderr
 #######################################
 build_java_test_app() {
   echo "Building Java test app"
@@ -30,6 +31,7 @@ build_java_test_app() {
   # Test-run binaries
   run_ignore_exit_code "${SRC_DIR}/${BUILD_APP_PATH}/bin/xds-test-client" --help
   run_ignore_exit_code "${SRC_DIR}/${BUILD_APP_PATH}/bin/xds-test-server" --help
+  run_ignore_exit_code "${SRC_DIR}/${BUILD_APP_PATH}/bin/xds-test-control-plane" --help
 }
 
 #######################################
@@ -123,6 +125,7 @@ run_test() {
     --flagfile="${TEST_DRIVER_FLAGFILE}" \
     --kube_context="${KUBE_CONTEXT}" \
     --client_image="${CLIENT_IMAGE_NAME}:${GIT_COMMIT}" \
+    --control_plane_image="${CONTROL_PLANE_IMAGE_NAME}:${GIT_COMMIT}" \
     --testing_version="${TESTING_VERSION}" \
     --xml_output_file="${TEST_XML_OUTPUT_DIR}/${test_name}/sponge_log.xml" \
     --flagfile="config/url-map.cfg"
