@@ -60,7 +60,7 @@ import java.util.logging.Logger;
  * that "after EDS" means that all resource types will be returned normally and then the aberation
  * will be applied if applicable
  */
-class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
+public class XdsTestControlPlaneExternalService extends XdsTestControlPlaneService {
   private static final Logger logger =
       Logger.getLogger(XdsTestControlPlaneExternalService.class.getName());
   public static final AckResponse OK_RESPONSE = AckResponse.newBuilder().setStatus(0).build();

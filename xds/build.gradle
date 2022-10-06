@@ -1,12 +1,17 @@
 import java.util.jar.JarFile
 
 plugins {
+    id "application"
     id "java"
     id "maven-publish"
 
     id "com.github.johnrengelman.shadow"
     id "com.google.protobuf"
     id "ru.vyarus.animalsniffer"
+}
+
+configurations {
+    alpnagent
 }
 
 description = "gRPC: XDS plugin"
@@ -205,6 +210,17 @@ def checkPackageLeakage = tasks.register("checkPackageLeakage") {
     }
 }
 
+def startScriptsClasspath = provider {
+    shadowJar.outputs.files + configurations.shadow
+}
+
+def test_control_plane = tasks.register("test_control_plane", CreateStartScripts) {
+    mainClass = "io.grpc.xds.internal.TestControlPlane"
+    applicationName = "test-control-plane"
+    outputDir = new File(project.buildDir, 'tmp/scripts/' + name)
+    classpath = startScriptsClasspath.get()
+}
+
 tasks.named("test").configure {
     dependsOn checkPackageLeakage
 }
@@ -224,6 +240,19 @@ tasks.named("jacocoTestReport").configure {
         ])
     }
 }
+
+distributions.shadow.contents.into("bin") {
+    from(test_control_plane)
+    fileMode = 0755
+}
+
+distributions.shadow.contents.into("lib") {
+    from(configurations.alpnagent)
+}
+
+distributions.shadow.distributionBaseName = project.name
+// to please shadowJar
+mainClassName = 'io.grpc.xds.internal.TestControlPlane'
 
 publishing {
     publications {

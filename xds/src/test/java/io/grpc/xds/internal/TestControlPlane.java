@@ -1,7 +1,6 @@
-package io.grpc.testing.integration;
+package io.grpc.xds.internal;
 
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.util.concurrent.MoreExecutors;
 import io.grpc.Grpc;
 import io.grpc.InsecureServerCredentials;
 import io.grpc.Server;
@@ -10,6 +9,7 @@ import io.grpc.TlsServerCredentials;
 import io.grpc.alts.AltsServerCredentials;
 import io.grpc.internal.testing.TestUtils;
 import io.grpc.xds.XdsTestControlPlaneExternalService;
+import io.grpc.xds.XdsTestControlPlaneExternalWrapperService;
 
 import java.util.concurrent.TimeUnit;
 
@@ -25,6 +25,32 @@ public class TestControlPlane {
   private int port = 8070;
   private boolean useTls = false;
   private boolean useAlts = false;
+
+  /**
+   * The main application allowing this client to be launched from the command line.
+   */
+  public static void main(String[] args) throws Exception {
+    final TestControlPlane server = new TestControlPlane();
+    server.parseArgs(args);
+    Runtime.getRuntime()
+        .addShutdownHook(
+            new Thread() {
+              @Override
+              @SuppressWarnings("CatchAndPrintStackTrace")
+              public void run() {
+                try {
+                  System.out.println("Shutting down");
+                  server.stop();
+                } catch (Exception e) {
+                  e.printStackTrace();
+                }
+              }
+            });
+    server.start();
+    System.out.println("Server started on port " + server.port);
+    server.blockUntilShutdown();
+  }
+
 
   @VisibleForTesting
   void parseArgs(String[] args) {
@@ -111,6 +137,12 @@ public class TestControlPlane {
     server.shutdownNow();
     if (!server.awaitTermination(5, TimeUnit.SECONDS)) {
       System.err.println("Timed out waiting for server shutdown");
+    }
+  }
+
+  private void blockUntilShutdown() throws InterruptedException {
+    if (server != null) {
+      server.awaitTermination();
     }
   }
 

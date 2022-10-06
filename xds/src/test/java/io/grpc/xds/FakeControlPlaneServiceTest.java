@@ -180,10 +180,10 @@ public class FakeControlPlaneServiceTest {
     setToDefaultConfig(tcpListenerName, serverHostName);
 
     // Register interest and check that we are getting what we expect
-    watchResource(ResourceType.LDS, serverHostName);
-    watchResource(ResourceType.RDS, RDS_NAME);
-    watchResource(ResourceType.CDS, CLUSTER_NAME);
-    watchResource(ResourceType.EDS, EDS_NAME);
+    watchResource(XdsListenerResource.getInstance(), serverHostName);
+    watchResource(XdsRouteConfigureResource.getInstance(), RDS_NAME);
+    watchResource(XdsClusterResource.getInstance(), CLUSTER_NAME);
+    watchResource(XdsEndpointResource.getInstance(), EDS_NAME);
     //    waitForResults();
     // verify things came as expected
     // Verify the right number of responses came and they had the correct resource names
@@ -199,7 +199,7 @@ public class FakeControlPlaneServiceTest {
     checkSingleNamesPerType(thingsToCheck);
 
     responses.clear();
-    watchResource(ResourceType.LDS, serverHostName, "dummy1");
+    watchResource(XdsListenerResource.getInstance(), serverHostName, "dummy1");
     asserEqualsUnordered(Arrays.asList("dummy1", serverHostName), getResourceNames(LDS));
 
     // update config and make sure updates are propagated
@@ -236,7 +236,7 @@ public class FakeControlPlaneServiceTest {
     Assert.assertNull("Should not have gotten CDS because of the  error. ",
         getResourceNames(CDS));
     // Verify request of CDS gets error but no resources
-    watchResource(ResourceType.CDS, CLUSTER_NAME);
+    watchResource(XdsClusterResource.getInstance(), CLUSTER_NAME);
     Assert.assertNull("Should not have gotten CDS because of the  error. ",
         getResourceNames(CDS));
 
@@ -244,7 +244,7 @@ public class FakeControlPlaneServiceTest {
     clearXdsClients();
     String[] ldsNames = new String[] {"dummy1", serverHostName};
     Arrays.sort(ldsNames); // For assert comparisons
-    watchResource(ResourceType.LDS, ldsNames);
+    watchResource(XdsListenerResource.getInstance(), ldsNames);
     // Should get a response with no resources
     List<DiscoveryResponse> ldsList = responses.get(LDS.name());
     Assert.assertNotNull(ldsList);
@@ -431,7 +431,7 @@ public class FakeControlPlaneServiceTest {
     return clazz;
   }
 
-  private void watchResource(ResourceType type, String... resources) {
+  private void watchResource(XdsResourceType<?> type, String... resources) {
     DiscoveryRequest request = buildDiscoveryRequest(type, Arrays.asList(resources));
     if (discoveryWriter == null) {
       discoveryWriter =
@@ -441,12 +441,10 @@ public class FakeControlPlaneServiceTest {
   }
 
   private DiscoveryRequest buildDiscoveryRequest(
-      ResourceType cpType, Collection<String> resources) {
-    AbstractXdsClient.ResourceType type = AbstractXdsClient.ResourceType.valueOf(cpType.name());
+      XdsResourceType<?> type, Collection<String> resources) {
     DiscoveryRequest.Builder builder =
         DiscoveryRequest.newBuilder()
             .setVersionInfo("")
-            //            .setNode(bootstrapNode.toEnvoyProtoNodeV2())
             .addAllResourceNames(resources)
             .setTypeUrl(type.typeUrl())
             .setResponseNonce("");
@@ -583,9 +581,8 @@ public class FakeControlPlaneServiceTest {
         new StreamObserver<DiscoveryResponse>() {
           @Override
           public void onNext(final DiscoveryResponse response) {
-            AbstractXdsClient.ResourceType type =
-                AbstractXdsClient.ResourceType.fromTypeUrl(response.getTypeUrl());
-            responses.computeIfAbsent(type.name(), l -> new ArrayList<>()).add(response);
+            XdsResourceType<?> type = AbstractXdsClient.fromTypeUrl(response.getTypeUrl());
+            responses.computeIfAbsent(type.typeName(), l -> new ArrayList<>()).add(response);
           }
 
           @Override

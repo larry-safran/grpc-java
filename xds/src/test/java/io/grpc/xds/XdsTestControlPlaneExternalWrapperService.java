@@ -30,7 +30,7 @@ import java.util.logging.Logger;
  * Wrapper class for {@link XdsTestControlPlaneExternalService} to allow it to serve
  * two services: {@link XdsTestConfigServiceGrpc} and {@link AggregatedDiscoveryServiceGrpc}.
  */
-class XdsTestControlPlaneExternalWrapperService extends
+public class XdsTestControlPlaneExternalWrapperService extends
     XdsTestConfigServiceGrpc.XdsTestConfigServiceImplBase {
 
   private static final Logger logger =
@@ -38,7 +38,7 @@ class XdsTestControlPlaneExternalWrapperService extends
 
   private XdsTestControlPlaneExternalService xdsService;
 
-  XdsTestControlPlaneExternalWrapperService(XdsTestControlPlaneExternalService svc) {
+  public XdsTestControlPlaneExternalWrapperService(XdsTestControlPlaneExternalService svc) {
     xdsService = svc;
   }
 
