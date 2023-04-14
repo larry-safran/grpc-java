@@ -214,6 +214,26 @@ public final class ClientCalls {
     return result;
   }
 
+  public static <ReqT, RespT> BlockingBiDiStream<ReqT, RespT> generatelockingBidiStreamingRpc(
+      Channel channel, MethodDescriptor<ReqT, RespT> method, CallOptions callOptions) {
+    ThreadlessExecutor executor = new ThreadlessExecutor();
+    ClientCall<ReqT, RespT> call = channel.newCall(method,
+        callOptions.withOption(ClientCalls.STUB_TYPE_OPTION, StubType.BLOCKING)
+            .withExecutor(executor));
+
+    BlockingBiDiStream<ReqT, RespT> blockingBiDiStream = new BlockingBiDiStream<>(call);
+
+    CallToStreamObserverAdapter<ReqT> adapter = new CallToStreamObserverAdapter<>(
+        call, streamingResponse);
+    adapter.setOnReadyHandler(new Runnable() {
+      @Override
+      public void run() {
+         blockingBiDiStream.setReadReady();
+      }
+    });
+    return blockingBiDiStream;
+  }
+
   /**
    * Executes a unary call and returns a {@link ListenableFuture} to the response.  The
    * {@code call} should not be already started.  After calling this method, {@code call} should no
@@ -329,6 +349,18 @@ public final class ClientCalls {
       boolean streamingResponse) {
     CallToStreamObserverAdapter<ReqT> adapter = new CallToStreamObserverAdapter<>(
         call, streamingResponse);
+    startCall(
+        call,
+        new StreamObserverToCallListenerAdapter<>(responseObserver, adapter));
+    return adapter;
+  }
+
+  private static <ReqT, RespT> StreamObserver<ReqT> blockingStreamingRequestCall(
+      ClientCall<ReqT, RespT> call,
+      StreamObserver<RespT> responseObserver,
+      boolean streamingResponse) {
+
+    BlockingBiDiStream biDiStream = new BlockingBiDiStream(call, )
     startCall(
         call,
         new StreamObserverToCallListenerAdapter<>(responseObserver, adapter));
@@ -591,7 +623,8 @@ public final class ClientCalls {
     // Due to flow control, only needs to hold up to 3 items: 2 for value, 1 for close.
     // (2 for value, not 1, because of early request() in next())
     private final BlockingQueue<Object> buffer = new ArrayBlockingQueue<>(3);
-    private final StartableListener<T> listener = new QueuingListener();
+    private final StartableListener<T> listener =
+        new ClientCalls.QueuingListener(buffer, call);
     private final ClientCall<?, T> call;
     /** May be null. */
     private final ThreadlessExecutor threadless;
@@ -607,6 +640,7 @@ public final class ClientCalls {
     BlockingResponseStream(ClientCall<?, T> call, ThreadlessExecutor threadless) {
       this.call = call;
       this.threadless = threadless;
+      listener = new ClientCalls.QueuingListener(buffer, call);
     }
 
     StartableListener<T> listener() {
@@ -687,37 +721,117 @@ public final class ClientCalls {
       throw new UnsupportedOperationException();
     }
 
-    private final class QueuingListener extends StartableListener<T> {
-      // Non private to avoid synthetic class
-      QueuingListener() {}
+  }
 
-      private boolean done = false;
+  public static final class BlockingBiDiStream<ReqT,RespT> {
+    private final BlockingQueue<Object> buffer;
+    private final StartableListener<RespT> listener;
+    private final ClientCall<ReqT,RespT> call;
 
-      @Override
-      public void onHeaders(Metadata headers) {
+    private boolean isWriteReady;
+    private boolean writeClosed;
+    private Status closedStatus;
+
+    private StatusRuntimeException closedException;
+
+    public final class ActivityDescr {
+      RespT response = null;
+      boolean writeDone;
+      boolean readDone;
+
+      public RespT getResponse() {
+        return response;
       }
 
-      @Override
-      public void onMessage(T value) {
-        Preconditions.checkState(!done, "ClientCall already closed");
-        buffer.add(value);
+      public boolean isWriteDone() {
+        return writeDone;
       }
 
-      @Override
-      public void onClose(Status status, Metadata trailers) {
-        Preconditions.checkState(!done, "ClientCall already closed");
-        if (status.isOk()) {
-          buffer.add(BlockingResponseStream.this);
-        } else {
-          buffer.add(status.asRuntimeException(trailers));
-        }
-        done = true;
+      public boolean isReadDone() {
+        return readDone;
+      }
+    }
+
+    public BlockingBiDiStream(ClientCall<ReqT, RespT> call) {
+      this.call = call;
+      buffer = new ArrayBlockingQueue<>(3); // TODO extend where add wakes up a blocker
+      listener = new QueuingListener(buffer, call);
+    }
+
+    public ActivityDescr blockingWriteOrRead(ReqT request) {
+      ActivityDescr retVal = new ActivityDescr();
+
+      if (call.isReady()) {
+        call.sendMessage(request);
+        retVal.writeDone = true;
       }
 
-      @Override
-      void onStart() {
-        call.request(1);
+      if (!buffer.isEmpty()) {
+        retVal.response = buffer.take();
+        retVal.readDone = true;
       }
+
+      if (!retVal.writeDone && !retVal.readDone) {
+        // TODO Block until one or the other is ready
+        // TODO Do ready action(s)
+        // TODO update retVal appropriately
+      }
+
+      return retVal;
+    }
+
+    public boolean isActivityReady(){
+      return isWriteReady() || !buffer.isEmpty();
+    }
+
+    public RespT blockingRead() throws InterruptedException{
+      if (closedStatus != null) {
+        return null;
+      }
+
+      Object take = buffer.take();
+
+      if (take instanceof StatusRuntimeException) {
+        closedStatus = ((StatusRuntimeException) take).getStatus();
+        writeClosed = true;
+        throw (StatusRuntimeException) take;
+      }
+
+      if (take instanceof ClientCall) {
+        closedStatus = Status.OK;
+        return null;
+      }
+
+      return (RespT) take;
+    }
+
+    public boolean isWriteReady() {
+      return !writeClosed && call.isReady();
+    }
+
+    public RespT blockingReqResp(ReqT request) throws InterruptedException {
+      if (writeClosed) {
+        throw new IllegalStateException("Cannot write after calling markWritesComplete");
+      }
+      call.sendMessage(request);
+      return (RespT)buffer.take();
+    }
+
+    void cancel(String message, Throwable cause) {
+      writeClosed = true;
+      if (message == null) {
+        message = "User requested a cancel";
+      }
+      call.cancel(message, cause);
+    }
+
+    void markWritesComplete() {
+      writeClosed = true;
+      call.halfClose();
+    }
+
+    Status getClosedStatus() {
+      return closedStatus;
     }
   }
 
@@ -803,4 +917,44 @@ public final class ClientCalls {
    */
   static final CallOptions.Key<StubType> STUB_TYPE_OPTION =
       CallOptions.Key.create("internal-stub-type");
+
+  private static final class QueuingListener<T> extends StartableListener<T> {
+
+    private final ClientCall call;
+    private boolean done = false;
+    private final BlockingQueue<Object> buffer;
+
+
+    // Non private to avoid synthetic class
+    QueuingListener(BlockingQueue<Object> buffer, ClientCall call) {
+      this.call = call;
+      this.buffer = buffer;
+    }
+
+    @Override
+    public void onHeaders(Metadata headers) {
+    }
+
+    @Override
+    public void onMessage(T value) {
+      Preconditions.checkState(!done, "ClientCall already closed");
+      buffer.add(value);
+    }
+
+    @Override
+    public void onClose(Status status, Metadata trailers) {
+      Preconditions.checkState(!done, "ClientCall already closed");
+      if (status.isOk()) {
+        buffer.add(call);
+      } else {
+        buffer.add(status.asRuntimeException(trailers));
+      }
+      done = true;
+    }
+
+    @Override
+    void onStart() {
+      call.request(1);
+    }
+  }
 }
