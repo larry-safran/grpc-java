@@ -214,7 +214,14 @@ public final class ClientCalls {
     return result;
   }
 
-  public static <ReqT, RespT> BlockingBiDiStream<ReqT, RespT> generatelockingBidiStreamingRpc(
+  /**
+   * Initiate a bidirectional-streaming {@link ClientCall} and returning a stream object
+   * ({@link BlockingBiDiStream}) which can be used by the client to send and receive messages over
+   * the grpc channel.
+   *
+   * @return an object representing the call which can be used to read, write and terminate it.
+   */
+  public static <ReqT, RespT> BlockingBiDiStream<ReqT, RespT> blockingBidiStreamingCall(
       Channel channel, MethodDescriptor<ReqT, RespT> method, CallOptions callOptions) {
     ThreadlessExecutor executor = new ThreadlessExecutor();
     ClientCall<ReqT, RespT> call = channel.newCall(method,
@@ -223,12 +230,11 @@ public final class ClientCalls {
 
     BlockingBiDiStream<ReqT, RespT> blockingBiDiStream = new BlockingBiDiStream<>(call);
 
-    CallToStreamObserverAdapter<ReqT> adapter = new CallToStreamObserverAdapter<>(
-        call, streamingResponse);
+    CallToStreamObserverAdapter<ReqT> adapter = new CallToStreamObserverAdapter<>(call, true);
     adapter.setOnReadyHandler(new Runnable() {
       @Override
       public void run() {
-         blockingBiDiStream.setReadReady();
+         blockingBiDiStream.handleReady();
       }
     });
     return blockingBiDiStream;
@@ -355,16 +361,13 @@ public final class ClientCalls {
     return adapter;
   }
 
-  private static <ReqT, RespT> StreamObserver<ReqT> blockingStreamingRequestCall(
+  private static <ReqT, RespT> BlockingBiDiStream<ReqT, RespT> blockingStreamingRequestCall(
       ClientCall<ReqT, RespT> call,
-      StreamObserver<RespT> responseObserver,
-      boolean streamingResponse) {
+      StreamObserver<RespT> responseObserver) {
 
-    BlockingBiDiStream biDiStream = new BlockingBiDiStream(call, )
-    startCall(
-        call,
-        new StreamObserverToCallListenerAdapter<>(responseObserver, adapter));
-    return adapter;
+    BlockingBiDiStream biDiStream = new BlockingBiDiStream(call);
+    startCall( call, biDiStream.getListener());
+    return biDiStream;
   }
 
   private static <ReqT, RespT> void startCall(
@@ -374,7 +377,7 @@ public final class ClientCalls {
     responseListener.onStart();
   }
 
-  private abstract static class StartableListener<T> extends ClientCall.Listener<T> {
+  abstract static class StartableListener<T> extends ClientCall.Listener<T> {
     abstract void onStart();
   }
 
@@ -623,8 +626,7 @@ public final class ClientCalls {
     // Due to flow control, only needs to hold up to 3 items: 2 for value, 1 for close.
     // (2 for value, not 1, because of early request() in next())
     private final BlockingQueue<Object> buffer = new ArrayBlockingQueue<>(3);
-    private final StartableListener<T> listener =
-        new ClientCalls.QueuingListener(buffer, call);
+    private final StartableListener<T> listener;
     private final ClientCall<?, T> call;
     /** May be null. */
     private final ThreadlessExecutor threadless;
@@ -723,118 +725,6 @@ public final class ClientCalls {
 
   }
 
-  public static final class BlockingBiDiStream<ReqT,RespT> {
-    private final BlockingQueue<Object> buffer;
-    private final StartableListener<RespT> listener;
-    private final ClientCall<ReqT,RespT> call;
-
-    private boolean isWriteReady;
-    private boolean writeClosed;
-    private Status closedStatus;
-
-    private StatusRuntimeException closedException;
-
-    public final class ActivityDescr {
-      RespT response = null;
-      boolean writeDone;
-      boolean readDone;
-
-      public RespT getResponse() {
-        return response;
-      }
-
-      public boolean isWriteDone() {
-        return writeDone;
-      }
-
-      public boolean isReadDone() {
-        return readDone;
-      }
-    }
-
-    public BlockingBiDiStream(ClientCall<ReqT, RespT> call) {
-      this.call = call;
-      buffer = new ArrayBlockingQueue<>(3); // TODO extend where add wakes up a blocker
-      listener = new QueuingListener(buffer, call);
-    }
-
-    public ActivityDescr blockingWriteOrRead(ReqT request) {
-      ActivityDescr retVal = new ActivityDescr();
-
-      if (call.isReady()) {
-        call.sendMessage(request);
-        retVal.writeDone = true;
-      }
-
-      if (!buffer.isEmpty()) {
-        retVal.response = buffer.take();
-        retVal.readDone = true;
-      }
-
-      if (!retVal.writeDone && !retVal.readDone) {
-        // TODO Block until one or the other is ready
-        // TODO Do ready action(s)
-        // TODO update retVal appropriately
-      }
-
-      return retVal;
-    }
-
-    public boolean isActivityReady(){
-      return isWriteReady() || !buffer.isEmpty();
-    }
-
-    public RespT blockingRead() throws InterruptedException{
-      if (closedStatus != null) {
-        return null;
-      }
-
-      Object take = buffer.take();
-
-      if (take instanceof StatusRuntimeException) {
-        closedStatus = ((StatusRuntimeException) take).getStatus();
-        writeClosed = true;
-        throw (StatusRuntimeException) take;
-      }
-
-      if (take instanceof ClientCall) {
-        closedStatus = Status.OK;
-        return null;
-      }
-
-      return (RespT) take;
-    }
-
-    public boolean isWriteReady() {
-      return !writeClosed && call.isReady();
-    }
-
-    public RespT blockingReqResp(ReqT request) throws InterruptedException {
-      if (writeClosed) {
-        throw new IllegalStateException("Cannot write after calling markWritesComplete");
-      }
-      call.sendMessage(request);
-      return (RespT)buffer.take();
-    }
-
-    void cancel(String message, Throwable cause) {
-      writeClosed = true;
-      if (message == null) {
-        message = "User requested a cancel";
-      }
-      call.cancel(message, cause);
-    }
-
-    void markWritesComplete() {
-      writeClosed = true;
-      call.halfClose();
-    }
-
-    Status getClosedStatus() {
-      return closedStatus;
-    }
-  }
-
   @SuppressWarnings("serial")
   private static final class ThreadlessExecutor extends ConcurrentLinkedQueue<Runnable>
       implements Executor {
@@ -918,14 +808,13 @@ public final class ClientCalls {
   static final CallOptions.Key<StubType> STUB_TYPE_OPTION =
       CallOptions.Key.create("internal-stub-type");
 
-  private static final class QueuingListener<T> extends StartableListener<T> {
+  static final class QueuingListener<T> extends StartableListener<T> {
 
     private final ClientCall call;
     private boolean done = false;
     private final BlockingQueue<Object> buffer;
 
 
-    // Non private to avoid synthetic class
     QueuingListener(BlockingQueue<Object> buffer, ClientCall call) {
       this.call = call;
       this.buffer = buffer;
