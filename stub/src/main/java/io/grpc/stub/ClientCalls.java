@@ -228,7 +228,7 @@ public final class ClientCalls {
         callOptions.withOption(ClientCalls.STUB_TYPE_OPTION, StubType.BLOCKING)
             .withExecutor(executor));
 
-    BlockingBiDiStream<ReqT, RespT> blockingBiDiStream = new BlockingBiDiStream<>(call);
+    BlockingBiDiStream<ReqT, RespT> blockingBiDiStream = new BlockingBiDiStream<>(call, executor);
 
     CallToStreamObserverAdapter<ReqT> adapter = new CallToStreamObserverAdapter<>(call, true);
     adapter.setOnReadyHandler(new Runnable() {
@@ -237,6 +237,10 @@ public final class ClientCalls {
          blockingBiDiStream.handleReady();
       }
     });
+
+    // Get the call started
+    startCall( call, blockingBiDiStream.getListener());
+
     return blockingBiDiStream;
   }
 
@@ -359,15 +363,6 @@ public final class ClientCalls {
         call,
         new StreamObserverToCallListenerAdapter<>(responseObserver, adapter));
     return adapter;
-  }
-
-  private static <ReqT, RespT> BlockingBiDiStream<ReqT, RespT> blockingStreamingRequestCall(
-      ClientCall<ReqT, RespT> call,
-      StreamObserver<RespT> responseObserver) {
-
-    BlockingBiDiStream biDiStream = new BlockingBiDiStream(call);
-    startCall( call, biDiStream.getListener());
-    return biDiStream;
   }
 
   private static <ReqT, RespT> void startCall(
@@ -642,7 +637,7 @@ public final class ClientCalls {
     BlockingResponseStream(ClientCall<?, T> call, ThreadlessExecutor threadless) {
       this.call = call;
       this.threadless = threadless;
-      listener = new ClientCalls.QueuingListener(buffer, call);
+      listener = new ClientCalls.QueuingListener<>(buffer, call);
     }
 
     StartableListener<T> listener() {
@@ -725,8 +720,7 @@ public final class ClientCalls {
 
   }
 
-  @SuppressWarnings("serial")
-  private static final class ThreadlessExecutor extends ConcurrentLinkedQueue<Runnable>
+  static final class ThreadlessExecutor extends ConcurrentLinkedQueue<Runnable>
       implements Executor {
     private static final Logger log = Logger.getLogger(ThreadlessExecutor.class.getName());
 
@@ -740,17 +734,36 @@ public final class ClientCalls {
 
     /**
      * Waits until there is a Runnable, then executes it and all queued Runnables after it.
-     * Must only be called by one thread at a time.
+     * This, {@link #drain}, and {@link #waitAndDrainWithTimeout(long)} must only be called by one
+     * thread at a time.
      */
     public void waitAndDrain() throws InterruptedException {
+      waitAndDrainWithTimeout(0);
+    }
+
+    /**
+     * Waits for up to specified nanoseconds until there is a Runnable, then executes it and all
+     * queued Runnables after it.
+     * This, {@link #drain} and {@link #waitAndDrain()} must only be called by one thread at a
+     * time.
+     */
+    public void waitAndDrainWithTimeout(long nanos) throws InterruptedException {
+      long start = System.nanoTime();
       throwIfInterrupted();
       Runnable runnable = poll();
       if (runnable == null) {
         waiter = Thread.currentThread();
         try {
           while ((runnable = poll()) == null) {
-            LockSupport.park(this);
-            throwIfInterrupted();
+            if (nanos == 0) {
+              LockSupport.park(this);
+            } else {
+              if (System.nanoTime() - start > nanos) {
+                return;
+              }
+              LockSupport.parkNanos(this, nanos);
+              throwIfInterrupted();
+            }
           }
         } finally {
           waiter = null;
@@ -759,6 +772,18 @@ public final class ClientCalls {
       do {
         runQuietly(runnable);
       } while ((runnable = poll()) != null);
+    }
+
+    /**
+     * Executes all queued Runnables
+     * This and {@link #drain} must only be called by one thread at a time.
+     */
+    public void drain() throws InterruptedException {
+      throwIfInterrupted();
+      Runnable runnable;
+      while ((runnable = poll()) != null) {
+        runQuietly(runnable);
+      }
     }
 
     /**
@@ -808,16 +833,16 @@ public final class ClientCalls {
   static final CallOptions.Key<StubType> STUB_TYPE_OPTION =
       CallOptions.Key.create("internal-stub-type");
 
-  static final class QueuingListener<T> extends StartableListener<T> {
+  static final class QueuingListener<ReqT, RespT> extends StartableListener<RespT> {
 
-    private final ClientCall call;
+    private final ClientCall<ReqT, RespT> call;
     private boolean done = false;
     private final BlockingQueue<Object> buffer;
 
 
-    QueuingListener(BlockingQueue<Object> buffer, ClientCall call) {
-      this.call = call;
-      this.buffer = buffer;
+    QueuingListener(BlockingQueue<Object> bufferArg, ClientCall<ReqT, RespT> callArg) {
+      this.call = callArg;
+      this.buffer = bufferArg;
     }
 
     @Override
@@ -825,7 +850,7 @@ public final class ClientCalls {
     }
 
     @Override
-    public void onMessage(T value) {
+    public void onMessage(RespT value) {
       Preconditions.checkState(!done, "ClientCall already closed");
       buffer.add(value);
     }

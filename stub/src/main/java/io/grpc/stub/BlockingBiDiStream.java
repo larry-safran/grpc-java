@@ -1,16 +1,17 @@
 package io.grpc.stub;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import io.grpc.ClientCall;
+import io.grpc.Metadata;
 import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
-import io.grpc.stub.ClientCalls.QueuingListener;
 import io.grpc.stub.ClientCalls.StartableListener;
-import java.util.Queue;
+import io.grpc.stub.ClientCalls.ThreadlessExecutor;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.LockSupport;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Represents a bidirectional streaming call from a client.  Allows in a blocking manner, sending
@@ -20,43 +21,16 @@ import java.util.concurrent.locks.LockSupport;
  * @param <RespT> Type of the Response Message
  */
 public final class BlockingBiDiStream<ReqT,RespT> {
-  private final BlockingQueue<Object> buffer;
+  private static final Logger logger = Logger.getLogger(BlockingBiDiStream.class.getName());
+
+  private final BlockingQueue<RespT> buffer;
   private final StartableListener<RespT> listener;
   private final ClientCall<ReqT,RespT> call;
 
-  private boolean writeClosed;
+  private ThreadlessExecutor executor;
+
+  private volatile boolean writeClosed;
   private Status closedStatus;
-
-  private StatusRuntimeException closedException;
-
-  private Waiter waiter = new Waiter();
-
-  private static final class Waiter {
-    // Threads waiting for read or write to be ready
-    Queue<Thread> waitingThreads = new ConcurrentLinkedDeque<>();
-
-    // Threads waiting for write to be ready
-    Queue<Thread> waitingWriteOnlyThreads =  new ConcurrentLinkedDeque<>();
-
-    synchronized void park(boolean writeOnly) {
-      Queue<Thread> queue = (writeOnly ? waitingWriteOnlyThreads : waitingThreads);
-      queue.add(Thread.currentThread());
-      LockSupport.park();
-    }
-
-    synchronized void unpark(boolean read) {
-      Thread cur;
-      if (!read) {
-        while ( (cur =waitingWriteOnlyThreads.poll()) != null) {
-          LockSupport.unpark(cur);
-        }
-      }
-
-      while ( (cur =waitingThreads.poll()) != null) {
-        LockSupport.unpark(cur);
-      }
-    }
-  }
 
   /**
    * Indicates which actions have been performed and maybe contains a value sent by the server.
@@ -95,20 +69,32 @@ public final class BlockingBiDiStream<ReqT,RespT> {
     public boolean isReadDone() {
       return readDone;
     }
+
+    @Override
+    public boolean equals(Object obj) {
+      if (this == obj) {
+        return true;
+      }
+      if (!(obj instanceof ActivityDescr)) {
+        return false;
+      }
+      ActivityDescr<?> o = (ActivityDescr<?>) obj;
+      return this.response == o.response
+          && this.readDone == o.readDone
+          && this.writeDone == o.writeDone;
+    }
+
+    @Override
+    public int hashCode() {
+      // Not likely to be used anywhere, but need something
+      return response.hashCode() + (readDone ? 1 << 10 : 0) + (writeDone ? 1 << 20 : 0);
+    }
   }
 
-  BlockingBiDiStream(ClientCall<ReqT, RespT> call) {
+  BlockingBiDiStream(ClientCall<ReqT, RespT> call, ThreadlessExecutor executor) {
     this.call = call;
-    buffer = new ArrayBlockingQueue<Object>(3) {
-      @Override
-      public boolean add(Object o) {
-        boolean didAdd = super.add(o);
-        if (didAdd) {
-          waiter.unpark(true);
-        }
-        return didAdd;
-      }
-    };
+    this.executor = executor;
+    buffer = new ArrayBlockingQueue<>(1);
     listener = new QueuingListener(buffer, call);
   }
 
@@ -116,7 +102,7 @@ public final class BlockingBiDiStream<ReqT,RespT> {
    * Check for whether some action is ready.
    * @return True if blockingWriteOrRead can run without blocking
    */
-  public boolean isEitherReadOrWriteReady(){
+  public boolean isEitherReadOrWriteReady() throws InterruptedException {
     return isWriteReady() || isReadReady();
   }
 
@@ -124,7 +110,9 @@ public final class BlockingBiDiStream<ReqT,RespT> {
    * Check whether there are any values waiting to be read
    * @return true if read will not block
    */
-  public boolean isReadReady(){
+  public boolean isReadReady() throws InterruptedException {
+    executor.drain();
+
     return !buffer.isEmpty();
   }
 
@@ -133,7 +121,9 @@ public final class BlockingBiDiStream<ReqT,RespT> {
    * not block.
    * @return true if legal to write and write will not block
    */
-  public boolean isWriteReady() {
+  public boolean isWriteReady() throws InterruptedException {
+    executor.drain();
+
     return !writeClosed && call.isReady();
   }
 
@@ -143,19 +133,20 @@ public final class BlockingBiDiStream<ReqT,RespT> {
    * Otherwise, wait for a value to be available or the stream to be closed
    * Params:
    * @return value from server or null if stream has been closed
-   * @throws InterruptedException
    */
   public RespT blockingRead() throws InterruptedException {
-    Object take;
-    synchronized (this) {
-      if (closedStatus != null) {
-        return null;
-      }
-
-      take = buffer.take();
+    if (closedStatus != null) {
+      return null;
     }
 
-    return processQueuedValue(take);
+    RespT bufferedValue;
+    while ((bufferedValue = buffer.poll()) == null) {
+      executor.waitAndDrain();
+    }
+
+    call.request(1); // Ask for a replacement for the one we removed
+
+    return bufferedValue;
   }
 
   /**
@@ -166,19 +157,35 @@ public final class BlockingBiDiStream<ReqT,RespT> {
    * @param timeout – how long to wait before giving up, in units of unit
    * @param unit – a TimeUnit determining how to interpret the timeout parameter
    * @return value from server or null if stream has been closed or timeout occurs
-   * @throws InterruptedException
    */
   public RespT blockingRead(long timeout, TimeUnit unit) throws InterruptedException{
-    Object take;
-    synchronized (this) {
-      if (closedStatus != null) {
-        return null;
-      }
+    long start = System.nanoTime();
 
-      take = buffer.poll(timeout, unit);
+    executor.drain();
+
+    if (buffer.isEmpty() && closedStatus != null) {
+      return null;
     }
 
-    return processQueuedValue(take);
+    long duration = unit.toNanos(timeout);
+    RespT bufferedValue;
+    while ((bufferedValue = buffer.poll()) == null && closedStatus == null) {
+      long soFar = System.nanoTime() - start;
+      if (soFar >= duration) {
+        break;
+      }
+      executor.waitAndDrainWithTimeout(duration - soFar);
+    }
+
+    if (logger.isLoggable(Level.FINER)) {
+      logger.finer("Client Blocking read with timeout had value:  " + bufferedValue);
+    }
+
+    if (bufferedValue != null) {
+      call.request(1);
+    }
+
+    return bufferedValue;
   }
 
   /**
@@ -188,10 +195,11 @@ public final class BlockingBiDiStream<ReqT,RespT> {
    * not block while the message is being sent on the wire.
    * @param request Message to send to the server
    * @return true if value sent to stream, false if skipped
-   * @throws InterruptedException
    */
   public boolean blockingWrite(ReqT request) throws InterruptedException {
-    if (writeClosed) {
+    executor.drain();
+
+    if (writeClosed || (closedStatus != null && !closedStatus.isOk())) {
       return false;
     }
 
@@ -202,8 +210,8 @@ public final class BlockingBiDiStream<ReqT,RespT> {
         call.sendMessage(request);
         writeDone = true;
       } else {
-        // Block until the stream is ready
-        waiter.park(true);
+        // Let threadless executor do stuff until there is something for us to check
+        executor.waitAndDrain();
       }
     }
 
@@ -222,7 +230,6 @@ public final class BlockingBiDiStream<ReqT,RespT> {
    * This method cannot be called after {@link #writesComplete} or {@link #cancel}
    * @param request value to send to server
    * @return Object identifying which actions were done and maybe value received from server
-   * @throws InterruptedException
    */
   public ActivityDescr<RespT> blockingWriteOrRead(ReqT request) throws InterruptedException {
 
@@ -230,7 +237,7 @@ public final class BlockingBiDiStream<ReqT,RespT> {
       return null;
     }
 
-    ActivityDescr retVal = new ActivityDescr();
+    ActivityDescr<RespT> retVal = new ActivityDescr<>();
 
     while (!retVal.writeDone && !retVal.readDone && !writeClosed) {
       // Try to write
@@ -239,18 +246,22 @@ public final class BlockingBiDiStream<ReqT,RespT> {
         retVal.writeDone = true;
       }
 
+      executor.drain();
+
       // Try to read
-      if (!buffer.isEmpty()) {
-        retVal.response = processQueuedValue(buffer.take());
+      retVal.response = buffer.poll();
+      if (retVal.response != null) {
         retVal.readDone = true;
+        call.request(1);
       }
 
+      // If we did something then we are ready to return
       if (retVal.isReadDone() || retVal.isWriteDone()) {
         break;
       }
 
       // Block until one or the other is ready
-      waiter.park(false);
+      executor.waitAndDrain();
     }
 
     return retVal;
@@ -261,9 +272,10 @@ public final class BlockingBiDiStream<ReqT,RespT> {
    *
    * This is designed for utilizing a bidi stream for unary requests in a non-multithreading
    * environment.
+   *
+   * If cancel or writeComplete were called, then simply return null
    * @param request Value to write
    * @return First value read
-   * @throws InterruptedException
    */
   public RespT blockingReqResp(ReqT request) throws InterruptedException {
     synchronized (this) {
@@ -278,8 +290,8 @@ public final class BlockingBiDiStream<ReqT,RespT> {
   /**
    * Cancel stream and stop any further writes.  Note that some reads that are in flight may still
    * happen after the cancel.
-   * @param message
-   * @param cause
+   * @param message if not {@code null}, will appear as the description of the CANCELLED status
+   * @param cause if not {@code null}, will appear as the cause of the CANCELLED status
    */
   public void cancel(String message, Throwable cause) {
     writeClosed = true;
@@ -287,15 +299,17 @@ public final class BlockingBiDiStream<ReqT,RespT> {
       message = "User requested a cancel";
     }
     call.cancel(message, cause);
-    waiter.unpark(false);
+    executor.add(NoOpRunnable.INSTANCE);
   }
 
   /**
-   * Indicate that no more writes will be done and the stream can be closed from the client side
+   * Indicate that no more writes will be done and the stream will be closed from the client side.
+   * See {@link ClientCall#halfClose()}
    */
   public void writesComplete() {
     writeClosed = true;
     call.halfClose();
+    executor.add(NoOpRunnable.INSTANCE);
   }
 
   /**
@@ -303,54 +317,71 @@ public final class BlockingBiDiStream<ReqT,RespT> {
    * @return null if stream not closed by server, otherwise status sent by server
    */
   public Status getClosedStatus() {
+    drainQuietly("getting closed status");
     return closedStatus;
-  }
-
-  /**
-   * If server closed the stream from its side with a non-OK status that included an exception
-   * will be the exception that was sent
-   * @return null if no exception from server, exception sent if there was one
-   */
-  public StatusRuntimeException getClosedException() {
-    return closedException;
   }
 
   StartableListener<RespT> getListener() {
     return listener;
   }
 
-  /**
-   * Since the queue puts a ClientCall object when closed with Status.OK and a
-   * StatusRuntimeException when closed with any other status, check for and handle those cases.
-   * The other case is that there was a response value which we cast and return.
-   * @param bufferVal value pulled from queue
-   * @return null if stream was closed by server, otherwise the parameter itself
-   */
-  private RespT processQueuedValue(Object bufferVal) {
-
-    if (bufferVal instanceof StatusRuntimeException) {
-      synchronized (this) {
-        closedException = (StatusRuntimeException) bufferVal;
-        closedStatus = ((StatusRuntimeException) bufferVal).getStatus();
-        writeClosed = true;
-      }
-      return null;
+  private void drainQuietly(String contextDescription) {
+    try {
+      executor.drain();
+    } catch (InterruptedException e) {
+      logger.warning(contextDescription + " interrupted: " + e.getMessage());
+      Thread.currentThread().interrupt();
     }
-
-    if (bufferVal instanceof ClientCall) {
-      synchronized (this) {
-        closedStatus = Status.OK;
-      }
-      return null;
-    }
-
-    return (RespT) bufferVal;
   }
 
   /**
    * wake up write if it is blocked
    */
   void handleReady() {
-    waiter.unpark(false);
+    executor.add(NoOpRunnable.INSTANCE);
+  }
+
+  final class QueuingListener extends StartableListener<RespT> {
+
+    private final ClientCall<ReqT, RespT> call;
+    private boolean done = false;
+    private final BlockingQueue<RespT> buffer;
+
+
+    QueuingListener(BlockingQueue<RespT> bufferArg, ClientCall<ReqT, RespT> callArg) {
+      this.call = callArg;
+      this.buffer = bufferArg;
+    }
+
+    @Override
+    public void onHeaders(Metadata headers) {
+    }
+
+    @Override
+    public void onMessage(RespT value) {
+      Preconditions.checkState(!done, "ClientCall already closed");
+      buffer.add(value);
+    }
+
+    @Override
+    public void onClose(Status status, Metadata trailers) {
+      Preconditions.checkState(!done, "ClientCall already closed");
+      closedStatus = status;
+      done = true;
+      executor.add(NoOpRunnable.INSTANCE);
+    }
+
+    @Override
+    void onStart() {
+      call.request(1);
+    }
+  }
+
+  private static class NoOpRunnable implements Runnable {
+    static NoOpRunnable INSTANCE = new NoOpRunnable();
+    @Override
+    public void run() {
+      // do nothing
+    }
   }
 }
