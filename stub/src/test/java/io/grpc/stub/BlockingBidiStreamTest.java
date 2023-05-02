@@ -17,7 +17,6 @@ import io.grpc.ServerServiceDefinition;
 import io.grpc.ServiceDescriptor;
 import io.grpc.Status;
 import io.grpc.Status.Code;
-import io.grpc.StatusRuntimeException;
 import io.grpc.inprocess.InProcessChannelBuilder;
 import io.grpc.inprocess.InProcessServerBuilder;
 import io.grpc.stub.BlockingBiDiStream.ActivityDescr;
@@ -93,15 +92,16 @@ public class BlockingBidiStreamTest {
     // Have server send a value
     testMethod.sendValueToClient(10);
 
-    // Do a writeAndOrRead
-    ActivityDescr<Integer> response = biDiStream.blockingWriteOrRead(req);
+    // Do a writeOrRead
+    ActivityDescr<Integer> response =
+        biDiStream.blockingWriteOrRead(req, 3, TimeUnit.SECONDS);
     assertNotNull(response);
-    assertTrue(response.isReadDone());
     assertTrue(response.isWriteDone());
-    assertEquals(10, response.getResponse().intValue());
+    assertFalse(response.isReadDone());
+    assertEquals(Integer.valueOf(10), biDiStream.blockingRead(DELAY_MILLIS, TimeUnit.MILLISECONDS));
 
     // mark complete
-    biDiStream.writesComplete();
+    biDiStream.finishWriting();
     assertNull(biDiStream.blockingRead(2, TimeUnit.SECONDS));
 
     // verify activity !ready and !writeable
@@ -165,14 +165,14 @@ public class BlockingBidiStreamTest {
 
     // read terminated
     long start = System.currentTimeMillis();
-    delayedCancel(biDiStream, DELAY_MILLIS, "cancel read");
+    delayedCancel(biDiStream, "cancel read");
     assertNull(biDiStream.blockingRead(2, TimeUnit.SECONDS));
     assertThat(System.currentTimeMillis() - start).isLessThan(2000);
 
     // write terminated
     biDiStream = ClientCalls.blockingBidiStreamingCall(channel,  BIDI_STREAMING_METHOD,
         CallOptions.DEFAULT);
-    delayedCancel(biDiStream, DELAY_MILLIS, "cancel write");
+    delayedCancel(biDiStream, "cancel write");
     start = System.currentTimeMillis();
     assertFalse(biDiStream.blockingWrite(30));
     assertThat(System.currentTimeMillis() - start).isLessThan(2 * DELAY_MILLIS);
@@ -206,7 +206,7 @@ public class BlockingBidiStreamTest {
     assertTrue(biDiStream.isWriteReady());
 
     // read only ready
-    biDiStream.writesComplete();
+    biDiStream.finishWriting();
     assertTrue(biDiStream.isEitherReadOrWriteReady());
     assertTrue(biDiStream.isReadReady());
     assertFalse(biDiStream.isWriteReady());
@@ -229,10 +229,10 @@ public class BlockingBidiStreamTest {
     assertTrue(biDiStream.blockingWrite(40));
 
     delayedWriteEnable(500);
-    ActivityDescr<Integer> activityDescr = biDiStream.blockingWriteOrRead(41);
+    ActivityDescr<Integer> activityDescr =
+        biDiStream.blockingWriteOrRead(41, 0, TimeUnit.NANOSECONDS);
     assertTrue(activityDescr.isWriteDone());
     assertFalse(activityDescr.isReadDone());
-
   }
 
 
@@ -279,7 +279,8 @@ public class BlockingBidiStreamTest {
     int count = 0;
     while (!done) {
       count++;
-      ActivityDescr<Integer> activityDescr = biDiStream.blockingWriteOrRead(100);
+      ActivityDescr<Integer> activityDescr =
+          biDiStream.blockingWriteOrRead(100, 2, TimeUnit.SECONDS);
       done = activityDescr.isWriteDone();
     }
     assertEquals(4, count);
@@ -290,37 +291,15 @@ public class BlockingBidiStreamTest {
     while (!biDiStream.isWriteReady()) {
       Thread.sleep(20);
     }
-    ActivityDescr<Integer> activityDescr = biDiStream.blockingWriteOrRead(1000);
-    assertTrue(activityDescr.isWriteDone());
-    assertTrue(activityDescr.isReadDone());
-    assertEquals(Integer.valueOf(20), activityDescr.getResponse());
 
+    ActivityDescr<Integer> activityDescr = biDiStream.blockingWriteOrRead(1000, 2, TimeUnit.SECONDS);
+    assertTrue(activityDescr.isWriteDone());
+    assertFalse(activityDescr.isReadDone());
+
+    assertEquals(Integer.valueOf(20), biDiStream.blockingRead(200, TimeUnit.MILLISECONDS));
     assertEquals(Integer.valueOf(21), biDiStream.blockingRead(200, TimeUnit.MILLISECONDS));
     assertEquals(Integer.valueOf(22), biDiStream.blockingRead(200, TimeUnit.MILLISECONDS));
     assertNull(biDiStream.blockingRead(200, TimeUnit.MILLISECONDS));
-  }
-
-  @Test
-  public void testUnaryOverBidi_withBlocking() throws InterruptedException {
-    testMethod.disableAutoRequest();
-    biDiStream = ClientCalls.blockingBidiStreamingCall(channel,  BIDI_STREAMING_METHOD,
-        CallOptions.DEFAULT);
-
-    long start = System.currentTimeMillis();
-    delayedWriteEnable(DELAY_MILLIS);
-    Integer resp = biDiStream.blockingReqResp(2000);
-    assertEquals(Integer.valueOf(2000), resp);
-    assertThat(System.currentTimeMillis() - start).isGreaterThan(DELAY_MILLIS);
-  }
-
-  @Test
-  public void testUnaryOverBidi_withoutBlocking() throws InterruptedException {
-    biDiStream = ClientCalls.blockingBidiStreamingCall(channel,  BIDI_STREAMING_METHOD,
-        CallOptions.DEFAULT);
-
-    int request = 3000;
-    Integer resp = biDiStream.blockingReqResp(request);
-    assertEquals(Integer.valueOf(request), resp);
   }
 
   @Test
@@ -330,7 +309,7 @@ public class BlockingBidiStreamTest {
         CallOptions.DEFAULT);
 
     // Verify pending write released
-    delayedVoidMethod(DELAY_MILLIS, biDiStream::writesComplete);
+    delayedVoidMethod(DELAY_MILLIS, biDiStream::finishWriting);
     assertFalse(biDiStream.blockingWrite(1)); // should block until writeComplete is triggered
 
     // verify new writes just return doing nothing
@@ -339,8 +318,8 @@ public class BlockingBidiStreamTest {
     // verify pending writeOrRead released
     biDiStream = ClientCalls.blockingBidiStreamingCall(channel,  BIDI_STREAMING_METHOD,
         CallOptions.DEFAULT);
-    delayedVoidMethod(DELAY_MILLIS, biDiStream::writesComplete);
-    assertEquals(new ActivityDescr<>(), biDiStream.blockingWriteOrRead(3));
+    delayedVoidMethod(DELAY_MILLIS, biDiStream::finishWriting);
+    assertEquals(new ActivityDescr<>(), biDiStream.blockingWriteOrRead(3, 2, TimeUnit.SECONDS));
   }
 
   @Test
@@ -393,12 +372,12 @@ public class BlockingBidiStreamTest {
     delayedVoidMethod(delayMillis, testMethod::readValueFromClient);
   }
 
-  private void delayedCancel(BlockingBiDiStream<Integer, Integer> biDiStream, int delayMillis, String message) {
+  private void delayedCancel(BlockingBiDiStream<Integer, Integer> biDiStream, String message) {
     new Thread("delayedCancel") {
       @Override
       public void run() {
         try {
-          Thread.sleep(delayMillis);
+          Thread.sleep(BlockingBidiStreamTest.DELAY_MILLIS);
           biDiStream.cancel(message, new RuntimeException("Test requested close"));
         } catch (InterruptedException e) {
           throw new RuntimeException(e);
