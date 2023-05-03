@@ -101,10 +101,10 @@ public final class BlockingBiDiStream<ReqT,RespT> {
 
   /**
    * Check for whether some action is ready.
-   * @return True if blockingWriteOrRead can run without blocking
+   * @return True if legal to write and blockingWriteOrRead can run without blocking
    */
   public boolean isEitherReadOrWriteReady() throws InterruptedException {
-    return isWriteReady() || isReadReady();
+    return isWriteLegal() && (isWriteReady() || isReadReady());
   }
 
   /**
@@ -118,14 +118,14 @@ public final class BlockingBiDiStream<ReqT,RespT> {
   }
 
   /**
-   * Check that write hasn't been marked complete and stream is ready to receive a write so will
-   * not block.
+   * Check that write hasn't been marked complete and stream is ready to receive a write (so will
+   * not block).
    * @return true if legal to write and write will not block
    */
   public boolean isWriteReady() throws InterruptedException {
     executor.drain();
 
-    return !writeClosed && call.isReady();
+    return isWriteLegal() && call.isReady();
   }
 
   /**
@@ -134,17 +134,19 @@ public final class BlockingBiDiStream<ReqT,RespT> {
    * If neither write nor read were ready, park until one or the other is ready or timeout
    * triggers.
    * <br>
-   * Note that it will consider the write action complete as soon as it passes the request to the
-   * grpc stream layer.  It will not wait while the message is being sent on the wire.
+   * <b>NOTE:</b> that this method will consider the write action to be complete as soon as it
+   * passes the request to the
+   * grpc stream layer.  It will not wait for the message to be sent on the wire.
    * <br>
-   * This method is a no-op when called after {@link #finishWriting} or {@link #cancel}
+   * This method is a no-op when called after {@link #finishWriting}, {@link #cancel} or close
+   * received from server (both onComplete and onError).
    * @param request value to send to server
    * @return Object identifying which actions were done and maybe value received from server
    */
   public ActivityDescr<RespT> blockingWriteOrRead(ReqT request, long timeout, TimeUnit unit)
       throws InterruptedException {
 
-    if (writeClosed) {
+    if (!isWriteLegal()) {
       return new ActivityDescr<>();
     }
 
@@ -187,7 +189,6 @@ public final class BlockingBiDiStream<ReqT,RespT> {
    * Wait if necessary for a value to be available from the server.
    * If there is an available value return it immediately, if the stream is closed return a null.
    * Otherwise, wait for a value to be available or the stream to be closed
-   * Params:
    * @return value from server or null if stream has been closed
    */
   public RespT blockingRead() throws InterruptedException {
@@ -197,10 +198,9 @@ public final class BlockingBiDiStream<ReqT,RespT> {
   /**
    * Wait with timeout, if necessary, for a value to be available from the server.
    * If there is an available value, return it immediately.  If the stream is closed return a null.
-   * Otherwise, wait for a value to be available or the stream to be closed
-   * Params:
-   * @param timeout – how long to wait before giving up.  Values &lt;= 0 are infinite
-   * @param unit – a TimeUnit determining how to interpret the timeout parameter
+   * Otherwise, wait for a value to be available, the stream to be closed or the timeout to expire.
+   * @param timeout how long to wait before giving up.  Values &lt;= 0 are infinite
+   * @param unit a TimeUnit determining how to interpret the timeout parameter
    * @return value from server or null if stream has been closed or timeout occurs
    */
   public RespT blockingRead(long timeout, TimeUnit unit) throws InterruptedException{
@@ -237,13 +237,13 @@ public final class BlockingBiDiStream<ReqT,RespT> {
    * ready.
    * <br>
    * <p>
-   * <b>Note:  </b>this method will return as soon as it passes the request to the grpc stream layer.
+   * <b>NOTE: </b>this method will return as soon as it passes the request to the grpc stream layer.
    * It will not block while the message is being sent on the wire and returning true does not
    * guarantee that the server gets the message.
    * </p>
    * <br>
    * <p>
-   * <b>Warning:  </b>Doing only writes without reads can lead to deadlocks as a result of flow
+   * <b>WARNING:  </b>Doing only writes without reads can lead to deadlocks as a result of flow
    * control.
    * </p>
    * @param request Message to send to the server
@@ -256,6 +256,8 @@ public final class BlockingBiDiStream<ReqT,RespT> {
   /**
    * Send a value to the stream for sending to server, wait if necessary for the grpc stream to be
    * ready up to specified timeout.
+   * <br>
+   * If write is not legal at the time of call, immediately returns false
    * <br>
    * <p>
    * <b>Note:  </b>this method will return as soon as it passes the request to the grpc stream layer.
@@ -276,7 +278,7 @@ public final class BlockingBiDiStream<ReqT,RespT> {
       throws InterruptedException {
     executor.drain();
 
-    if (writeClosed || (closedStatus != null && !closedStatus.isOk())) {
+    if (!isWriteLegal()) {
       return false;
     }
 
@@ -299,6 +301,9 @@ public final class BlockingBiDiStream<ReqT,RespT> {
     return writeDone;
   }
 
+  private boolean isWriteLegal() {
+    return !writeClosed && closedStatus == null;
+  }
   /**
    * calls this.executor's waitAndDrain or waitAndDrainWithTimeout.
    * @return true if there was a timeout
@@ -350,7 +355,7 @@ public final class BlockingBiDiStream<ReqT,RespT> {
    * @return null if stream not closed by server, otherwise status sent by server
    */
   public Status getClosedStatus() {
-    drainQuietly("getting closed status");
+    drainQuietly();
     return closedStatus;
   }
 
@@ -358,11 +363,11 @@ public final class BlockingBiDiStream<ReqT,RespT> {
     return listener;
   }
 
-  private void drainQuietly(String contextDescription) {
+  private void drainQuietly() {
     try {
       executor.drain();
     } catch (InterruptedException e) {
-      logger.warning(contextDescription + " interrupted: " + e.getMessage());
+      logger.warning("Draining interrupted: " + e.getMessage());
       Thread.currentThread().interrupt();
     }
   }
