@@ -161,6 +161,18 @@ public final class ServerReflectionGrpc {
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       return new ServerReflectionBlockingStub(channel, callOptions);
     }
+
+    /**
+     * <pre>
+     * The reflection service is structured as a bidirectional stream, ensuring
+     * all related requests go to a single server.
+     * </pre>
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.grpc.reflection.v1alpha.ServerReflectionRequest,io.grpc.reflection.v1alpha.ServerReflectionResponse>
+        serverReflectionInfo() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getServerReflectionInfoMethod(), getCallOptions());
+    }
   }
 
   /**

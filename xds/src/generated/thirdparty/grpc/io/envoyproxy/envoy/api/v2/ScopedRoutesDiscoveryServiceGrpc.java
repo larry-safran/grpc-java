@@ -293,6 +293,22 @@ public final class ScopedRoutesDiscoveryServiceGrpc {
 
     /**
      */
+    public io.grpc.stub.BlockingBiDiStream<io.envoyproxy.envoy.api.v2.DiscoveryRequest,io.envoyproxy.envoy.api.v2.DiscoveryResponse>
+        streamScopedRoutes() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getStreamScopedRoutesMethod(), getCallOptions());
+    }
+
+    /**
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.envoyproxy.envoy.api.v2.DeltaDiscoveryRequest,io.envoyproxy.envoy.api.v2.DeltaDiscoveryResponse>
+        deltaScopedRoutes() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getDeltaScopedRoutesMethod(), getCallOptions());
+    }
+
+    /**
+     */
     public io.envoyproxy.envoy.api.v2.DiscoveryResponse fetchScopedRoutes(io.envoyproxy.envoy.api.v2.DiscoveryRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getFetchScopedRoutesMethod(), getCallOptions(), request);

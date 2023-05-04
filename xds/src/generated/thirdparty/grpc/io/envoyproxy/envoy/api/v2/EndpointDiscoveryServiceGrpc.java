@@ -255,6 +255,26 @@ public final class EndpointDiscoveryServiceGrpc {
     }
 
     /**
+     * <pre>
+     * The resource_names field in DiscoveryRequest specifies a list of clusters
+     * to subscribe to updates for.
+     * </pre>
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.envoyproxy.envoy.api.v2.DiscoveryRequest,io.envoyproxy.envoy.api.v2.DiscoveryResponse>
+        streamEndpoints() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getStreamEndpointsMethod(), getCallOptions());
+    }
+
+    /**
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.envoyproxy.envoy.api.v2.DeltaDiscoveryRequest,io.envoyproxy.envoy.api.v2.DeltaDiscoveryResponse>
+        deltaEndpoints() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getDeltaEndpointsMethod(), getCallOptions());
+    }
+
+    /**
      */
     public io.envoyproxy.envoy.api.v2.DiscoveryResponse fetchEndpoints(io.envoyproxy.envoy.api.v2.DiscoveryRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(

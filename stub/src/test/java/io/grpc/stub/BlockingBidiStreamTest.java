@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package io.grpc.stub;
 
 import static com.google.common.truth.Truth.assertThat;
@@ -93,9 +94,8 @@ public class BlockingBidiStreamTest {
     }
   }
 
-
   @Test
-  public void sanityTest() throws Exception{
+  public void sanityTest() throws Exception {
     Integer req = 2;
     biDiStream = ClientCalls.blockingBidiStreamingCall(channel,  BIDI_STREAMING_METHOD,
         CallOptions.DEFAULT);
@@ -280,7 +280,7 @@ public class BlockingBidiStreamTest {
     Integer[] valuesOut = {1, 2, 3};
     Integer[] valuesIn = new Integer[valuesOut.length];
     delayedAddValue(300, valuesOut);
-    for (int i=0; i < valuesOut.length; ) {
+    for (int i = 0; i < valuesOut.length; ) {
       if ((valuesIn[i] = biDiStream.read(50, TimeUnit.MILLISECONDS)) != null) {
         i++;
       }

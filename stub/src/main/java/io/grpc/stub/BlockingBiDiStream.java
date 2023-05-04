@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package io.grpc.stub;
 
 import com.google.common.base.Preconditions;
@@ -83,7 +84,7 @@ public final class BlockingBiDiStream<ReqT, RespT> {
     }
 
     /**
-     * Was a value read?
+     * Was a value read.
      *
      * @return True if a value was retrieved from the server
      */
@@ -129,7 +130,7 @@ public final class BlockingBiDiStream<ReqT, RespT> {
   }
 
   /**
-   * Check whether there are any values waiting to be read
+   * Check whether there are any values waiting to be read.
    *
    * @return true if read will not block
    */
@@ -152,7 +153,7 @@ public final class BlockingBiDiStream<ReqT, RespT> {
   }
 
   /**
-   * Block until read or write is ready or timeout is exceeded or stream is closed
+   * Block until read or write is ready or timeout is exceeded or stream is closed.
    *
    * @return true if something is ready, false if stream was closed
    */
@@ -442,7 +443,7 @@ public final class BlockingBiDiStream<ReqT, RespT> {
   }
 
   /**
-   * Status that server sent when closing channel from its side
+   * Status that server sent when closing channel from its side.
    *
    * @return null if stream not closed by server, otherwise Status sent by server
    */
@@ -465,7 +466,7 @@ public final class BlockingBiDiStream<ReqT, RespT> {
   }
 
   /**
-   * wake up write if it is blocked
+   * wake up write if it is blocked.
    */
   void handleReady() {
     executor.add(NoOpRunnable.INSTANCE);

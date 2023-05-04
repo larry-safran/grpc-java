@@ -234,7 +234,7 @@ public final class ClientCalls {
     adapter.setOnReadyHandler(new Runnable() {
       @Override
       public void run() {
-         blockingBiDiStream.handleReady();
+        blockingBiDiStream.handleReady();
       }
     });
 

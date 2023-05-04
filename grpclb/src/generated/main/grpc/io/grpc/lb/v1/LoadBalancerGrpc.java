@@ -159,6 +159,17 @@ public final class LoadBalancerGrpc {
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       return new LoadBalancerBlockingStub(channel, callOptions);
     }
+
+    /**
+     * <pre>
+     * Bidirectional rpc to get a list of servers.
+     * </pre>
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.grpc.lb.v1.LoadBalanceRequest,io.grpc.lb.v1.LoadBalanceResponse>
+        balanceLoad() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getBalanceLoadMethod(), getCallOptions());
+    }
   }
 
   /**

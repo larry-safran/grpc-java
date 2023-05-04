@@ -213,6 +213,14 @@ public final class VirtualHostDiscoveryServiceGrpc {
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       return new VirtualHostDiscoveryServiceBlockingStub(channel, callOptions);
     }
+
+    /**
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.envoyproxy.envoy.api.v2.DeltaDiscoveryRequest,io.envoyproxy.envoy.api.v2.DeltaDiscoveryResponse>
+        deltaVirtualHosts() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getDeltaVirtualHostsMethod(), getCallOptions());
+    }
   }
 
   /**

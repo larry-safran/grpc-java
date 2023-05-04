@@ -169,6 +169,22 @@ public final class HandshakerServiceGrpc {
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       return new HandshakerServiceBlockingStub(channel, callOptions);
     }
+
+    /**
+     * <pre>
+     * Handshaker service accepts a stream of handshaker request, returning a
+     * stream of handshaker response. Client is expected to send exactly one
+     * message with either client_start or server_start followed by one or more
+     * messages with next. Each time client sends a request, the handshaker
+     * service expects to respond. Client does not have to wait for service's
+     * response before sending next request.
+     * </pre>
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.grpc.alts.internal.HandshakerReq,io.grpc.alts.internal.HandshakerResp>
+        doHandshake() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getDoHandshakeMethod(), getCallOptions());
+    }
   }
 
   /**

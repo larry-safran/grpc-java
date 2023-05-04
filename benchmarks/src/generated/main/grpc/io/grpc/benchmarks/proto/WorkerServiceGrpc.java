@@ -338,6 +338,38 @@ public final class WorkerServiceGrpc {
 
     /**
      * <pre>
+     * Start server with specified workload.
+     * First request sent specifies the ServerConfig followed by ServerStatus
+     * response. After that, a "Mark" can be sent anytime to request the latest
+     * stats. Closing the stream will initiate shutdown of the test server
+     * and once the shutdown has finished, the OK status is sent to terminate
+     * this RPC.
+     * </pre>
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.grpc.benchmarks.proto.Control.ServerArgs,io.grpc.benchmarks.proto.Control.ServerStatus>
+        runServer() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getRunServerMethod(), getCallOptions());
+    }
+
+    /**
+     * <pre>
+     * Start client with specified workload.
+     * First request sent specifies the ClientConfig followed by ClientStatus
+     * response. After that, a "Mark" can be sent anytime to request the latest
+     * stats. Closing the stream will initiate shutdown of the test client
+     * and once the shutdown has finished, the OK status is sent to terminate
+     * this RPC.
+     * </pre>
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.grpc.benchmarks.proto.Control.ClientArgs,io.grpc.benchmarks.proto.Control.ClientStatus>
+        runClient() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getRunClientMethod(), getCallOptions());
+    }
+
+    /**
+     * <pre>
      * Just return the core count - unary call
      * </pre>
      */

@@ -248,6 +248,22 @@ public final class SecretDiscoveryServiceGrpc {
 
     /**
      */
+    public io.grpc.stub.BlockingBiDiStream<io.envoyproxy.envoy.api.v2.DeltaDiscoveryRequest,io.envoyproxy.envoy.api.v2.DeltaDiscoveryResponse>
+        deltaSecrets() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getDeltaSecretsMethod(), getCallOptions());
+    }
+
+    /**
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.envoyproxy.envoy.api.v2.DiscoveryRequest,io.envoyproxy.envoy.api.v2.DiscoveryResponse>
+        streamSecrets() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getStreamSecretsMethod(), getCallOptions());
+    }
+
+    /**
+     */
     public io.envoyproxy.envoy.api.v2.DiscoveryResponse fetchSecrets(io.envoyproxy.envoy.api.v2.DiscoveryRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getFetchSecretsMethod(), getCallOptions(), request);

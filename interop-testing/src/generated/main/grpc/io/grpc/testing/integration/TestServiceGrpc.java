@@ -610,6 +610,33 @@ public final class TestServiceGrpc {
 
     /**
      * <pre>
+     * A sequence of requests with each request served by the server immediately.
+     * As one request could lead to multiple responses, this interface
+     * demonstrates the idea of full duplexing.
+     * </pre>
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.grpc.testing.integration.Messages.StreamingOutputCallRequest,io.grpc.testing.integration.Messages.StreamingOutputCallResponse>
+        fullDuplexCall() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getFullDuplexCallMethod(), getCallOptions());
+    }
+
+    /**
+     * <pre>
+     * A sequence of requests followed by a sequence of responses.
+     * The server buffers all the client requests and then serves them in order. A
+     * stream of responses are returned to the client when the server starts with
+     * first request.
+     * </pre>
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.grpc.testing.integration.Messages.StreamingOutputCallRequest,io.grpc.testing.integration.Messages.StreamingOutputCallResponse>
+        halfDuplexCall() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getHalfDuplexCallMethod(), getCallOptions());
+    }
+
+    /**
+     * <pre>
      * The test server will not implement this method. It will be used
      * to test the behavior when clients call unimplemented methods.
      * </pre>

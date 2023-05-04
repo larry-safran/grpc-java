@@ -393,6 +393,19 @@ public final class BenchmarkServiceGrpc {
 
     /**
      * <pre>
+     * Repeated sequence of one request followed by one response.
+     * Should be called streaming ping-pong
+     * The server returns the client payload as-is on each response
+     * </pre>
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.grpc.benchmarks.proto.Messages.SimpleRequest,io.grpc.benchmarks.proto.Messages.SimpleResponse>
+        streamingCall() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getStreamingCallMethod(), getCallOptions());
+    }
+
+    /**
+     * <pre>
      * Single-sided unbounded streaming from server to client
      * The server repeatedly returns the client payload as-is
      * </pre>
@@ -401,6 +414,18 @@ public final class BenchmarkServiceGrpc {
         io.grpc.benchmarks.proto.Messages.SimpleRequest request) {
       return io.grpc.stub.ClientCalls.blockingServerStreamingCall(
           getChannel(), getStreamingFromServerMethod(), getCallOptions(), request);
+    }
+
+    /**
+     * <pre>
+     * Two-sided unbounded streaming between server to client
+     * Both sides send the content of their own choice to the other
+     * </pre>
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.grpc.benchmarks.proto.Messages.SimpleRequest,io.grpc.benchmarks.proto.Messages.SimpleResponse>
+        streamingBothWays() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getStreamingBothWaysMethod(), getCallOptions());
     }
   }
 

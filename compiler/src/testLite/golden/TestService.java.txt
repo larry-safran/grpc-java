@@ -576,6 +576,45 @@ public final class TestServiceGrpc {
 
     /**
      * <pre>
+     * A sequence of requests with each request served by the server immediately.
+     * As one request could lead to multiple responses, this interface
+     * demonstrates the idea of full bidirectionality.
+     * </pre>
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.grpc.testing.compiler.Test.StreamingOutputCallRequest,io.grpc.testing.compiler.Test.StreamingOutputCallResponse>
+        fullBidiCall() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getFullBidiCallMethod(), getCallOptions());
+    }
+
+    /**
+     * <pre>
+     * A sequence of requests followed by a sequence of responses.
+     * The server buffers all the client requests and then serves them in order. A
+     * stream of responses are returned to the client when the server starts with
+     * first request.
+     * </pre>
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.grpc.testing.compiler.Test.StreamingOutputCallRequest,io.grpc.testing.compiler.Test.StreamingOutputCallResponse>
+        halfBidiCall() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getHalfBidiCallMethod(), getCallOptions());
+    }
+
+    /**
+     * <pre>
+     * An RPC method whose Java name collides with a keyword, and whose generated
+     * method should have a '_' appended.
+     * </pre>
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.grpc.testing.compiler.Test.StreamingInputCallRequest,io.grpc.testing.compiler.Test.StreamingInputCallResponse>
+        import_() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getImportMethod(), getCallOptions());
+    }
+
+    /**
+     * <pre>
      * A unary call that is Safe.
      * </pre>
      */

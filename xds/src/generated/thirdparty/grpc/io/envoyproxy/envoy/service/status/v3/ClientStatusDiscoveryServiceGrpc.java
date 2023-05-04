@@ -227,6 +227,14 @@ public final class ClientStatusDiscoveryServiceGrpc {
 
     /**
      */
+    public io.grpc.stub.BlockingBiDiStream<io.envoyproxy.envoy.service.status.v3.ClientStatusRequest,io.envoyproxy.envoy.service.status.v3.ClientStatusResponse>
+        streamClientStatus() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getStreamClientStatusMethod(), getCallOptions());
+    }
+
+    /**
+     */
     public io.envoyproxy.envoy.service.status.v3.ClientStatusResponse fetchClientStatus(io.envoyproxy.envoy.service.status.v3.ClientStatusRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getFetchClientStatusMethod(), getCallOptions(), request);

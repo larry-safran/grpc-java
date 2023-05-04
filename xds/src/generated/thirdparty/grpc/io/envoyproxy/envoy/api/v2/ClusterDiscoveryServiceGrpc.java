@@ -263,6 +263,22 @@ public final class ClusterDiscoveryServiceGrpc {
 
     /**
      */
+    public io.grpc.stub.BlockingBiDiStream<io.envoyproxy.envoy.api.v2.DiscoveryRequest,io.envoyproxy.envoy.api.v2.DiscoveryResponse>
+        streamClusters() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getStreamClustersMethod(), getCallOptions());
+    }
+
+    /**
+     */
+    public io.grpc.stub.BlockingBiDiStream<io.envoyproxy.envoy.api.v2.DeltaDiscoveryRequest,io.envoyproxy.envoy.api.v2.DeltaDiscoveryResponse>
+        deltaClusters() {
+      return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(
+          getChannel(), getDeltaClustersMethod(), getCallOptions());
+    }
+
+    /**
+     */
     public io.envoyproxy.envoy.api.v2.DiscoveryResponse fetchClusters(io.envoyproxy.envoy.api.v2.DiscoveryRequest request) {
       return io.grpc.stub.ClientCalls.blockingUnaryCall(
           getChannel(), getFetchClustersMethod(), getCallOptions(), request);

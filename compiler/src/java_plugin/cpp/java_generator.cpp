@@ -1259,6 +1259,7 @@ void GenerateService(const ServiceDescriptor* service,
   vars["RpcMethod"] = "io.grpc.stub.annotations.RpcMethod";
   vars["MethodDescriptor"] = "io.grpc.MethodDescriptor";
   vars["StreamObserver"] = "io.grpc.stub.StreamObserver";
+  vars["BlockingBiDiStream"] = "io.grpc.stub.BlockingBiDiStream";
   vars["Iterator"] = "java.util.Iterator";
   vars["Generated"] = "javax.annotation.Generated";
   vars["GrpcGenerated"] = "io.grpc.stub.annotations.GrpcGenerated";
