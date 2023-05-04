@@ -667,7 +667,7 @@ static void PrintStub(
     bool client_streaming = method->client_streaming();
     bool server_streaming = method->server_streaming();
 
-    if (call_type == BLOCKING_CALL && client_streaming) {
+    if (call_type == BLOCKING_CALL && client_streaming && !server_streaming) {
       // Blocking client interface with client streaming is not available
       continue;
     }
@@ -679,7 +679,6 @@ static void PrintStub(
 
     // Method signature
     p->Print("\n");
-    // TODO(nmittler): Replace with WriteMethodDocComment once included by the protobuf distro.
     GrpcWriteMethodDocComment(p, method);
 
     if (method->options().deprecated()) {
@@ -693,9 +692,14 @@ static void PrintStub(
     }
     switch (call_type) {
       case BLOCKING_CALL:
-        GRPC_CODEGEN_CHECK(!client_streaming)
+        GRPC_CODEGEN_CHECK(!client_streaming || server_streaming)
             << "Blocking client interface with client streaming is unavailable";
-        if (server_streaming) {
+        if (client_streaming && server_streaming) {
+          p->Print(
+              *vars,
+              "$BlockingBiDiStream$<$input_type$,$output_type$>\n"
+               "    $lower_method_name$()");
+        } else if (server_streaming) {
           // Server streaming
           p->Print(
               *vars,
@@ -755,19 +759,26 @@ static void PrintStub(
     } else if (!interface) {
       switch (call_type) {
         case BLOCKING_CALL:
-          GRPC_CODEGEN_CHECK(!client_streaming)
+          GRPC_CODEGEN_CHECK(!client_streaming || server_streaming)
               << "Blocking client streaming interface is not available";
-          if (server_streaming) {
-            (*vars)["calls_method"] = "io.grpc.stub.ClientCalls.blockingServerStreamingCall";
-            (*vars)["params"] = "request";
+          if (client_streaming && server_streaming) {
+            p->Print(
+                *vars,
+                "return io.grpc.stub.ClientCalls.blockingBidiStreamingCall(\n"
+                "    getChannel(), $method_method_name$(), getCallOptions());\n");
           } else {
-            (*vars)["calls_method"] = "io.grpc.stub.ClientCalls.blockingUnaryCall";
-            (*vars)["params"] = "request";
+            if (server_streaming) {
+              (*vars)["calls_method"] = "io.grpc.stub.ClientCalls.blockingServerStreamingCall";
+              (*vars)["params"] = "request";
+            } else {
+              (*vars)["calls_method"] = "io.grpc.stub.ClientCalls.blockingUnaryCall";
+              (*vars)["params"] = "request";
+            }
+            p->Print(
+                *vars,
+                "return $calls_method$(\n"
+                "    getChannel(), $method_method_name$(), getCallOptions(), $params$);\n");
           }
-          p->Print(
-              *vars,
-              "return $calls_method$(\n"
-              "    getChannel(), $method_method_name$(), getCallOptions(), $params$);\n");
           break;
         case ASYNC_CALL:
           if (server_streaming) {
