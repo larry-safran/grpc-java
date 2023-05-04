@@ -163,7 +163,7 @@ public class BlockingBidiStreamTest {
     }
     timeTaken = System.nanoTime() - start;
     assertThat(timeTaken).isLessThan(DELAY_NANOS * 2);
-    assertThat(timeTaken).isGreaterThan(DELAY_NANOS);
+    assertThat(timeTaken).isAtLeast(DELAY_NANOS);
 
     start = System.nanoTime();
     delayedVoidMethod(100, testMethod::halfClose);
@@ -191,7 +191,7 @@ public class BlockingBidiStreamTest {
     start = System.currentTimeMillis();
     assertFalse(biDiStream.write(30));
     assertThat(System.currentTimeMillis() - start).isLessThan(2 * DELAY_MILLIS);
-    assertThat(System.currentTimeMillis() - start).isGreaterThan(DELAY_MILLIS);
+    assertThat(System.currentTimeMillis() - start).isAtLeast(DELAY_MILLIS);
 
     // new read after cancel immediately returns null
     start = System.currentTimeMillis();
