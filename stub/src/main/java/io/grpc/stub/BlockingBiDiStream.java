@@ -126,7 +126,7 @@ public final class BlockingBiDiStream<ReqT, RespT> {
    * @return True if legal to write and writeOrRead can run without blocking
    */
   public boolean isEitherReadOrWriteReady() throws InterruptedException {
-    return isWriteLegal() && (isWriteReady() || isReadReady());
+    return (isWriteLegal() && isWriteReady() )|| isReadReady();
   }
 
   /**

@@ -621,7 +621,7 @@ public final class ClientCalls {
     // Due to flow control, only needs to hold up to 3 items: 2 for value, 1 for close.
     // (2 for value, not 1, because of early request() in next())
     private final BlockingQueue<Object> buffer = new ArrayBlockingQueue<>(3);
-    private final StartableListener<T> listener;
+    private final StartableListener<T> listener = new QueuingListener();
     private final ClientCall<?, T> call;
     /** May be null. */
     private final ThreadlessExecutor threadless;
@@ -637,7 +637,6 @@ public final class ClientCalls {
     BlockingResponseStream(ClientCall<?, T> call, ThreadlessExecutor threadless) {
       this.call = call;
       this.threadless = threadless;
-      listener = new ClientCalls.QueuingListener<>(buffer, call);
     }
 
     StartableListener<T> listener() {
@@ -718,8 +717,41 @@ public final class ClientCalls {
       throw new UnsupportedOperationException();
     }
 
+    private final class QueuingListener extends StartableListener<T> {
+      // Non private to avoid synthetic class
+      QueuingListener() {}
+
+      private boolean done = false;
+
+      @Override
+      public void onHeaders(Metadata headers) {
+      }
+
+      @Override
+      public void onMessage(T value) {
+        Preconditions.checkState(!done, "ClientCall already closed");
+        buffer.add(value);
+      }
+
+      @Override
+      public void onClose(Status status, Metadata trailers) {
+        Preconditions.checkState(!done, "ClientCall already closed");
+        if (status.isOk()) {
+          buffer.add(BlockingResponseStream.this);
+        } else {
+          buffer.add(status.asRuntimeException(trailers));
+        }
+        done = true;
+      }
+
+      @Override
+      void onStart() {
+        call.request(1);
+      }
+    }
   }
 
+  @SuppressWarnings("serial")
   static final class ThreadlessExecutor extends ConcurrentLinkedQueue<Runnable>
       implements Executor {
     private static final Logger log = Logger.getLogger(ThreadlessExecutor.class.getName());
@@ -832,43 +864,4 @@ public final class ClientCalls {
    */
   static final CallOptions.Key<StubType> STUB_TYPE_OPTION =
       CallOptions.Key.create("internal-stub-type");
-
-  static final class QueuingListener<ReqT, RespT> extends StartableListener<RespT> {
-
-    private final ClientCall<ReqT, RespT> call;
-    private boolean done = false;
-    private final BlockingQueue<Object> buffer;
-
-
-    QueuingListener(BlockingQueue<Object> bufferArg, ClientCall<ReqT, RespT> callArg) {
-      this.call = callArg;
-      this.buffer = bufferArg;
-    }
-
-    @Override
-    public void onHeaders(Metadata headers) {
-    }
-
-    @Override
-    public void onMessage(RespT value) {
-      Preconditions.checkState(!done, "ClientCall already closed");
-      buffer.add(value);
-    }
-
-    @Override
-    public void onClose(Status status, Metadata trailers) {
-      Preconditions.checkState(!done, "ClientCall already closed");
-      if (status.isOk()) {
-        buffer.add(call);
-      } else {
-        buffer.add(status.asRuntimeException(trailers));
-      }
-      done = true;
-    }
-
-    @Override
-    void onStart() {
-      call.request(1);
-    }
-  }
 }
