@@ -125,7 +125,7 @@ public final class BlockingBiDiStream<ReqT, RespT> {
    *
    * @return True if legal to write and writeOrRead can run without blocking
    */
-  public boolean isEitherReadOrWriteReady() throws InterruptedException {
+  public boolean isEitherReadOrWriteReady() {
     return (isWriteLegal() && isWriteReady()) || isReadReady();
   }
 
@@ -134,8 +134,8 @@ public final class BlockingBiDiStream<ReqT, RespT> {
    *
    * @return true if read will not block
    */
-  public boolean isReadReady() throws InterruptedException {
-    executor.drain();
+  public boolean isReadReady() {
+    drainQuietly();
 
     return !buffer.isEmpty();
   }
@@ -146,8 +146,8 @@ public final class BlockingBiDiStream<ReqT, RespT> {
    *
    * @return true if legal to write and write will not block
    */
-  public boolean isWriteReady() throws InterruptedException {
-    executor.drain();
+  public boolean isWriteReady() {
+    drainQuietly();
 
     return isWriteLegal() && call.isReady();
   }
@@ -278,7 +278,7 @@ public final class BlockingBiDiStream<ReqT, RespT> {
    * @return value from server or null if stream has been closed
    */
   public RespT read() throws InterruptedException {
-    return read(0, TimeUnit.NANOSECONDS);
+    return read(Integer.MAX_VALUE, TimeUnit.DAYS);
   }
 
   /**
@@ -308,8 +308,7 @@ public final class BlockingBiDiStream<ReqT, RespT> {
     }
 
     if (logger.isLoggable(Level.FINER)) {
-      String conditional = (duration > 0) ? " with timeout " : " ";
-      logger.finer("Client Blocking read" + conditional + "had value:  " + bufferedValue);
+      logger.finer("Client Blocking read with timeout had value:  " + bufferedValue);
     }
 
     if (bufferedValue != null) {
@@ -337,7 +336,7 @@ public final class BlockingBiDiStream<ReqT, RespT> {
    * @return true if the request is sent to stream, false if skipped
    */
   public boolean write(ReqT request) throws InterruptedException {
-    return write(request, 0, TimeUnit.NANOSECONDS);
+    return write(request, Integer.MAX_VALUE, TimeUnit.DAYS);
   }
 
   /**
@@ -388,7 +387,11 @@ public final class BlockingBiDiStream<ReqT, RespT> {
     return writeDone;
   }
 
-  private boolean isWriteLegal() {
+  /**
+   * Check whether we'll ever be able to do writes or should terminate
+   * @return True if writes haven't been closed and the server hasn't closed the stream
+   */
+  public boolean isWriteLegal() {
     return !writeClosed && closedStatus == null;
   }
 
@@ -399,16 +402,12 @@ public final class BlockingBiDiStream<ReqT, RespT> {
    */
   private boolean waitAndDrainExecutorOrTimeout(long start, long duration)
       throws InterruptedException {
-    if (duration > 0) {
-      long soFar = System.nanoTime() - start;
-      if (soFar >= duration) {
-        return true;
-      }
-      // Let threadless executor do stuff until there is something for us to check
-      executor.waitAndDrainWithTimeout(duration - soFar);
-    } else {
-      executor.drain();
+    long soFar = System.nanoTime() - start;
+    if (soFar >= duration) {
+      return true;
     }
+    // Let threadless executor do stuff until there is something for us to check
+    executor.waitAndDrainWithTimeout(duration - soFar);
 
     return false;
   }

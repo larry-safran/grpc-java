@@ -17,28 +17,23 @@
 package io.grpc.examples.multiplex;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.util.concurrent.AbstractFuture;
 import io.grpc.Channel;
 import io.grpc.Grpc;
 import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
-import io.grpc.examples.helloworld.GreeterGrpc;
-import io.grpc.examples.helloworld.HelloReply;
-import io.grpc.examples.helloworld.HelloRequest;
 import io.grpc.examples.echo.EchoGrpc;
 import io.grpc.examples.echo.EchoRequest;
 import io.grpc.examples.echo.EchoResponse;
 import io.grpc.examples.helloworld.HelloWorldClient;
-import io.grpc.stub.StreamObserver;
+import io.grpc.stub.BlockingBiDiStream;
+import io.grpc.stub.BlockingBiDiStream.ActivityDescr;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Queue;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.annotation.Nullable;
 
 
 /**
@@ -49,105 +44,13 @@ public class BidiBlockingClient {
   private static final Logger logger = Logger.getLogger(
       HelloWorldClient.class.getName());
 
-  private final GreeterGrpc.GreeterBlockingStub greeterStub1;
-  private final GreeterGrpc.GreeterBlockingStub greeterStub2;
-  private final EchoGrpc.EchoStub echoStub;
+  private final BlockingBiDiStream<EchoRequest,EchoResponse> biDiStream;
 
   private Random random = new Random();
 
   /** Construct client for accessing HelloWorld server using the existing channel. */
   public BidiBlockingClient(Channel channel) {
-    // 'channel' here is a Channel, not a ManagedChannel, so it is not this code's responsibility to
-    // shut it down.
-
-    // Passing Channels to code makes code easier to test and makes it easier to reuse Channels.
-    greeterStub1 = GreeterGrpc.newBlockingStub(channel);
-    greeterStub2 = GreeterGrpc.newBlockingStub(channel);
-    echoStub = EchoGrpc.newStub(channel);
-  }
-
-  /** Say hello to server. */
-  private void greet(String name, GreeterGrpc.GreeterBlockingStub stub, String stubName)
-      throws InterruptedException {
-    System.out.println("Will try to greet " + name + " using " + stubName);
-    HelloRequest request = HelloRequest.newBuilder().setName(name).build();
-    HelloReply response;
-    try {
-      response = stub.sayHello(request);
-    } catch (StatusRuntimeException e) {
-      logger.log(Level.WARNING, "RPC failed: {0}", e.getStatus());
-      return;
-    }
-    System.out.println("Greeting: " + response.getMessage());
-    // pause to allow interleaving
-    Thread.sleep(1000);
-  }
-
-  public void greet1(String name) throws InterruptedException {
-    greet(name, greeterStub1, "greeter #1");
-  }
-
-  public void greet2(String name) throws InterruptedException {
-    greet(name, greeterStub2, "greeter #2");
-  }
-
-  public StreamingFuture<List<String>> initiateEchos(List<String> valuesToSend) {
-    StreamingFuture<List<String>> future = new StreamingFuture<List<String>> ();
-    List<String> valuesReceived = new ArrayList<>();
-
-    // The logic that gets called by the framework during the RPC's lifecycle
-    StreamObserver<EchoResponse> responseObserver = new StreamObserver<EchoResponse>() {
-      @Override
-      public void onNext(EchoResponse response) {
-        System.out.println("Received an echo: " + response.getMessage());
-        valuesReceived.add(response.getMessage());
-      }
-
-      @Override
-      public void onError(Throwable t) {
-        logger.warning("Echo Failed: {0}" + Status.fromThrowable(t));
-        future.setException(t);
-      }
-
-      @Override
-      public void onCompleted() {
-        System.out.println("Server acknowledged end of echo stream.");
-        future.set(valuesReceived);
-      }
-    };
-
-    future.setObserver(responseObserver);
-
-    new Thread(new Runnable() {
-      public void run() {
-        StreamObserver<EchoRequest> requestObserver =
-            echoStub.bidirectionalStreamingEcho(responseObserver);
-
-        try {
-          for (String curValue : valuesToSend) {
-            System.out.println("Sending an echo request for: " + curValue);
-            EchoRequest req = EchoRequest.newBuilder().setMessage(curValue).build();
-            requestObserver.onNext(req);
-
-            // Sleep for a bit before sending the next one.
-            Thread.sleep(random.nextInt(1000) + 500);
-          }
-        } catch (RuntimeException e) {
-          // Cancel RPC
-          requestObserver.onError(e);
-          throw e;
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-          requestObserver.onError(e);
-          return;
-        }
-
-        // Mark the end of requests
-        requestObserver.onCompleted();
-      }
-    }).start();
-
-    return future;
+    biDiStream = EchoGrpc.newBlockingStub(channel).bidirectionalStreamingEcho();
   }
 
   /**
@@ -184,22 +87,19 @@ public class BidiBlockingClient {
         .build();
     List<String> echoInput = ImmutableList.of("some", "thing", "wicked", "this", "way", "comes");
     try {
-      SharingClient client = new SharingClient(channel);
-
-      StreamingFuture<List<String>> future = client.initiateEchos(echoInput);
-      client.greet1(user + " the great");
-      client.greet2(user + " the lesser");
-      client.greet1(user + " the humble");
-      // Receiving happens asynchronously
-
-      String resultStr = future.get(1, TimeUnit.MINUTES).toString();
+      List<String> simpleWrite = useSimpleWrite(channel, echoInput);
+      List<String> blockUntilSomethingReady =
+          doCommunication("blockUntilSomethingReady", channel, echoInput);
+      List<String> writeOrRead = doCommunication("writeOrRead", channel, echoInput);
+      List<String> writeUnlessBlockedAndReadIsReady =
+          doCommunication("writeUnlessBlockedAndReadIsReady", channel, echoInput);
       System.out.println("The echo requests and results were:");
-      System.out.println(echoInput.toString());
-      System.out.println(resultStr);
+      System.out.println(echoInput);
+      System.out.println("simpleWrite:            : " + simpleWrite);
+      System.out.println("blockUntilSomethingReady: " + blockUntilSomethingReady);
+      System.out.println("writeOrRead:            : " + writeOrRead);
+      System.out.println("writeUnlessBlockedAndReadIsReady: " + writeUnlessBlockedAndReadIsReady);
 
-      if (!future.isDone()) {
-        System.err.println("Streaming rpc failed to complete in 1 minute");
-      }
     } finally {
       // ManagedChannels use resources like threads and TCP connections. To prevent leaking these
       // resources the channel should be shut down when it will no longer be used. If it may be used
@@ -208,32 +108,143 @@ public class BidiBlockingClient {
     }
   }
 
-  private class StreamingFuture<RespT> extends AbstractFuture<RespT> {
+  private static List<String> doCommunication(String method,
+      ManagedChannel channel, List<String> echoInput) throws InterruptedException {
+    BidiBlockingClient client = new BidiBlockingClient(channel);
+    BlockingBiDiStream<EchoRequest, EchoResponse> stream = client.biDiStream;
+    List<String> readValues = new ArrayList<String>();
+    Queue<String> queue = new ArrayDeque<>(echoInput);
 
-    private StreamObserver<EchoResponse> responseObserver = null;
-
-    private void setObserver(StreamObserver<EchoResponse> responseObserver) {
-      this.responseObserver = responseObserver;
-    }
-
-    @Override
-    protected void interruptTask() {
-      if (responseObserver != null) {
-        responseObserver.onError(Status.ABORTED.asException());
+    while ((stream.getClosedStatus() != null)
+        && (!queue.isEmpty() || readValues.size() < echoInput.size())) {
+      switch (method) {
+        case "writeUnlessBlockedAndReadIsReady":
+          writeUnlessBlockedAndReadIsReady(stream, readValues, queue);
+          break;
+        case "WriteOrRead":
+          writeOrRead(stream, readValues, queue);
+          break;
+        case "blockUntilSomethingReady":
+          blockUntilSomethingReady(stream, readValues, queue);
       }
-
     }
 
-    // These are needed for visibility from the parent object
-    @Override
-    protected boolean set(@Nullable RespT resp) {
-      return super.set(resp);
-    }
-
-    @Override
-    protected boolean setException(Throwable throwable) {
-      return super.setException(throwable);
-    }
-
+    return readValues;
   }
+
+  private static void writeUnlessBlockedAndReadIsReady(
+      BlockingBiDiStream<EchoRequest, EchoResponse> stream,
+      List<String> readValues, Queue<String> queue) throws InterruptedException {
+
+    if (!queue.isEmpty()) {
+      String curValue = queue.peek();
+      EchoRequest req = EchoRequest.newBuilder().setMessage(curValue).build();
+      if (stream.writeUnlessBlockedAndReadIsReady(req, 10, TimeUnit.SECONDS)) {
+        queue.poll();
+        if (queue.isEmpty()) {
+          stream.sendCloseWrite();
+        }
+      } else {
+        EchoResponse response = stream.read(10, TimeUnit.SECONDS);
+        if (response != null) {
+          readValues.add(response.getMessage());
+        }
+      }
+    } else {
+      EchoResponse response = stream.read(10, TimeUnit.MINUTES);
+      if (response != null) {
+        readValues.add(response.getMessage());
+      }
+    }
+  }
+
+  private static void writeOrRead(BlockingBiDiStream<EchoRequest, EchoResponse> stream,
+      List<String> readValues, Queue<String> queue)
+      throws InterruptedException {
+      if (!queue.isEmpty()) {
+        String curValue = queue.peek();
+        EchoRequest req = EchoRequest.newBuilder().setMessage(curValue).build();
+        ActivityDescr<EchoResponse> response =
+            stream.writeOrRead(req, 10, TimeUnit.MINUTES);
+        if (response.isReadDone()) {
+          readValues.add(response.getResponse().getMessage());
+        }
+        if (response.isWriteDone()) {
+          queue.poll();
+          if (queue.isEmpty()) {
+            stream.sendCloseWrite();
+          }
+        }
+      } else {
+        EchoResponse respValue = stream.read(10, TimeUnit.MINUTES);
+        if (respValue != null) {
+          readValues.add(respValue.getMessage());
+        }
+      }
+  }
+
+  private static void blockUntilSomethingReady(
+      BlockingBiDiStream<EchoRequest, EchoResponse> stream,
+      List<String> readValues, Queue<String> queue) throws InterruptedException {
+
+    stream.blockUntilSomethingReady(10, TimeUnit.SECONDS);
+
+    if (stream.getClosedStatus() != null) {
+      return;
+    }
+
+    if (stream.isWriteReady() && !queue.isEmpty()) {
+      String curValue = queue.peek();
+      EchoRequest req = EchoRequest.newBuilder().setMessage(curValue).build();
+      if (stream.write(req)) {
+        queue.poll();
+        if (queue.isEmpty()) {
+          stream.sendCloseWrite();
+        }
+      }
+    } else {
+      // read should be ready since write wasn't
+      EchoResponse response = stream.read();
+      if (response != null) {
+        readValues.add(response.getMessage());
+      }
+    }
+  }
+
+  private static List<String> useSimpleWrite(ManagedChannel channel, List<String> echoInput)
+      throws InterruptedException {
+    List<String> readValues = new ArrayList<String>();
+    BlockingBiDiStream<EchoRequest, EchoResponse> stream =
+        new BidiBlockingClient(channel).biDiStream;
+
+    for (String curValue : echoInput) {
+      boolean successfulWrite = false;
+      EchoRequest req = EchoRequest.newBuilder().setMessage(curValue).build();
+      while (stream.isWriteLegal() && !successfulWrite) {
+        successfulWrite = stream.write(req, 10, TimeUnit.SECONDS);
+        if (!stream.isWriteReady()) {
+          while (stream.isReadReady()) {
+            EchoResponse readValue = stream.read(0, TimeUnit.MILLISECONDS);
+            if (readValue != null) {
+              readValues.add(readValue.getMessage());
+            }
+          }
+        }
+      }
+    }
+    stream.sendCloseWrite();
+
+    while (readValues.size() < echoInput.size() && stream.getClosedStatus() == null) {
+      EchoResponse readValue = stream.read();
+      if (readValue != null) {
+        readValues.add(readValue.getMessage());
+      }
+    }
+    stream.cancel("We are done", null);
+    return readValues;
+  }
+
+  private void readWhatIsAvailable(List<String> readValues) throws InterruptedException {
+  }
+
 }
