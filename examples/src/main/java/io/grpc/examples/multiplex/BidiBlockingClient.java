@@ -21,6 +21,7 @@ import io.grpc.Channel;
 import io.grpc.Grpc;
 import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
+import io.grpc.examples.echo.EchoGrpc.EchoBlockingStub;
 import io.grpc.examples.echo.EchoGrpc;
 import io.grpc.examples.echo.EchoRequest;
 import io.grpc.examples.echo.EchoResponse;
@@ -37,21 +38,12 @@ import java.util.logging.Logger;
 
 
 /**
- * A client that shares a channel across multiple stubs to a single service and across services
- * being provided by one server process.
+ * A class that tries multiple ways to do blocking bidi streaming
+ * communication with an echo server
  */
 public class BidiBlockingClient {
   private static final Logger logger = Logger.getLogger(
       HelloWorldClient.class.getName());
-
-  private final BlockingBiDiStream<EchoRequest,EchoResponse> biDiStream;
-
-  private Random random = new Random();
-
-  /** Construct client for accessing HelloWorld server using the existing channel. */
-  public BidiBlockingClient(Channel channel) {
-    biDiStream = EchoGrpc.newBlockingStub(channel).bidirectionalStreamingEcho();
-  }
 
   /**
    * Greet server. If provided, the first element of {@code args} is the name to use in the
@@ -85,14 +77,15 @@ public class BidiBlockingClient {
     // use TLS, use TlsChannelCredentials instead.
     ManagedChannel channel = Grpc.newChannelBuilder(target, InsecureChannelCredentials.create())
         .build();
+    EchoBlockingStub blockingStub = EchoGrpc.newBlockingStub(channel);
     List<String> echoInput = ImmutableList.of("some", "thing", "wicked", "this", "way", "comes");
     try {
-      List<String> simpleWrite = useSimpleWrite(channel, echoInput);
+      List<String> simpleWrite = useSimpleWrite(blockingStub, echoInput);
       List<String> blockUntilSomethingReady =
-          doCommunication("blockUntilSomethingReady", channel, echoInput);
-      List<String> writeOrRead = doCommunication("writeOrRead", channel, echoInput);
+          doCommunication("blockUntilSomethingReady", blockingStub, echoInput);
+      List<String> writeOrRead = doCommunication("writeOrRead", blockingStub, echoInput);
       List<String> writeUnlessBlockedAndReadIsReady =
-          doCommunication("writeUnlessBlockedAndReadIsReady", channel, echoInput);
+          doCommunication("writeUnlessBlockedAndReadIsReady", blockingStub, echoInput);
       System.out.println("The echo requests and results were:");
       System.out.println(echoInput);
       System.out.println("simpleWrite:            : " + simpleWrite);
@@ -109,9 +102,8 @@ public class BidiBlockingClient {
   }
 
   private static List<String> doCommunication(String method,
-      ManagedChannel channel, List<String> echoInput) throws InterruptedException {
-    BidiBlockingClient client = new BidiBlockingClient(channel);
-    BlockingBiDiStream<EchoRequest, EchoResponse> stream = client.biDiStream;
+      EchoBlockingStub blockingStub, List<String> echoInput) throws InterruptedException {
+    BlockingBiDiStream<EchoRequest, EchoResponse> stream = blockingStub.bidirectionalStreamingEcho();
     List<String> readValues = new ArrayList<String>();
     Queue<String> queue = new ArrayDeque<>(echoInput);
 
@@ -211,11 +203,10 @@ public class BidiBlockingClient {
     }
   }
 
-  private static List<String> useSimpleWrite(ManagedChannel channel, List<String> echoInput)
+  private static List<String> useSimpleWrite(EchoBlockingStub blockingStub, List<String> echoInput)
       throws InterruptedException {
     List<String> readValues = new ArrayList<String>();
-    BlockingBiDiStream<EchoRequest, EchoResponse> stream =
-        new BidiBlockingClient(channel).biDiStream;
+    BlockingBiDiStream<EchoRequest, EchoResponse> stream = blockingStub.bidirectionalStreamingEcho();
 
     for (String curValue : echoInput) {
       boolean successfulWrite = false;
@@ -240,7 +231,6 @@ public class BidiBlockingClient {
         readValues.add(readValue.getMessage());
       }
     }
-    stream.cancel("We are done", null);
     return readValues;
   }
 

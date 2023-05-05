@@ -252,6 +252,13 @@ task sharingClient(type: CreateStartScripts) {
     classpath = startScripts.classpath
 }
 
+task blockingBidiClient(type: CreateStartScripts) {
+    mainClass = 'io.grpc.examples.multiplex.BidiBlockingClient'
+    applicationName = 'blocking-bidi-client'
+    outputDir = new File(project.buildDir, 'tmp/scripts/' + name)
+    classpath = startScripts.classpath
+}
+
 task errorDetails(type: CreateStartScripts) {
     mainClass = 'io.grpc.examples.errordetails.ErrorDetailsExample'
     applicationName = 'error-details'
@@ -287,6 +294,7 @@ applicationDistribution.into('bin') {
     from(cancellationServer)
     from(multiplexingServer)
     from(sharingClient)
+    from(blockingBidiClient)
     from(errorDetails)
     fileMode = 0755
 }

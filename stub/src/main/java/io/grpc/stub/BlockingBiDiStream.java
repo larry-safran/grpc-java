@@ -388,7 +388,7 @@ public final class BlockingBiDiStream<ReqT, RespT> {
   }
 
   /**
-   * Check whether we'll ever be able to do writes or should terminate
+   * Check whether we'll ever be able to do writes or should terminate.
    * @return True if writes haven't been closed and the server hasn't closed the stream
    */
   public boolean isWriteLegal() {
