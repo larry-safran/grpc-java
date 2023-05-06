@@ -17,7 +17,6 @@
 package io.grpc.examples.multiplex;
 
 import com.google.common.collect.ImmutableList;
-import io.grpc.Channel;
 import io.grpc.Grpc;
 import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
@@ -25,14 +24,12 @@ import io.grpc.examples.echo.EchoGrpc.EchoBlockingStub;
 import io.grpc.examples.echo.EchoGrpc;
 import io.grpc.examples.echo.EchoRequest;
 import io.grpc.examples.echo.EchoResponse;
-import io.grpc.examples.helloworld.HelloWorldClient;
 import io.grpc.stub.BlockingBiDiStream;
 import io.grpc.stub.BlockingBiDiStream.ActivityDescr;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
-import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
@@ -42,8 +39,7 @@ import java.util.logging.Logger;
  * communication with an echo server
  */
 public class BidiBlockingClient {
-  private static final Logger logger = Logger.getLogger(
-      HelloWorldClient.class.getName());
+  private static final Logger logger = Logger.getLogger(BidiBlockingClient.class.getName());
 
   /**
    * Greet server. If provided, the first element of {@code args} is the name to use in the
@@ -86,11 +82,12 @@ public class BidiBlockingClient {
       List<String> writeOrRead = doCommunication("writeOrRead", blockingStub, echoInput);
       List<String> writeUnlessBlockedAndReadIsReady =
           doCommunication("writeUnlessBlockedAndReadIsReady", blockingStub, echoInput);
+
       System.out.println("The echo requests and results were:");
-      System.out.println(echoInput);
-      System.out.println("simpleWrite:            : " + simpleWrite);
+      System.out.println("Input      : " + echoInput);
+      System.out.println("simpleWrite             : " + simpleWrite);
       System.out.println("blockUntilSomethingReady: " + blockUntilSomethingReady);
-      System.out.println("writeOrRead:            : " + writeOrRead);
+      System.out.println("writeOrRead             : " + writeOrRead);
       System.out.println("writeUnlessBlockedAndReadIsReady: " + writeUnlessBlockedAndReadIsReady);
 
     } finally {
@@ -104,20 +101,25 @@ public class BidiBlockingClient {
   private static List<String> doCommunication(String method,
       EchoBlockingStub blockingStub, List<String> echoInput) throws InterruptedException {
     BlockingBiDiStream<EchoRequest, EchoResponse> stream = blockingStub.bidirectionalStreamingEcho();
+
     List<String> readValues = new ArrayList<String>();
     Queue<String> queue = new ArrayDeque<>(echoInput);
 
-    while ((stream.getClosedStatus() != null)
+    while ((stream.getClosedStatus() == null)
         && (!queue.isEmpty() || readValues.size() < echoInput.size())) {
       switch (method) {
         case "writeUnlessBlockedAndReadIsReady":
           writeUnlessBlockedAndReadIsReady(stream, readValues, queue);
           break;
-        case "WriteOrRead":
+        case "writeOrRead":
           writeOrRead(stream, readValues, queue);
           break;
         case "blockUntilSomethingReady":
           blockUntilSomethingReady(stream, readValues, queue);
+          break;
+        default:
+          System.out.println("Method not recognized " + method);
+
       }
     }
 
@@ -181,10 +183,6 @@ public class BidiBlockingClient {
 
     stream.blockUntilSomethingReady(10, TimeUnit.SECONDS);
 
-    if (stream.getClosedStatus() != null) {
-      return;
-    }
-
     if (stream.isWriteReady() && !queue.isEmpty()) {
       String curValue = queue.peek();
       EchoRequest req = EchoRequest.newBuilder().setMessage(curValue).build();
@@ -194,9 +192,8 @@ public class BidiBlockingClient {
           stream.sendCloseWrite();
         }
       }
-    } else {
-      // read should be ready since write wasn't
-      EchoResponse response = stream.read();
+    } else if (stream.isReadReady()) {
+      EchoResponse response = stream.read(1, TimeUnit.SECONDS);
       if (response != null) {
         readValues.add(response.getMessage());
       }
