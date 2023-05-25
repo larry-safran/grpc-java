@@ -409,7 +409,7 @@ public final class BlockingBiDiStream<ReqT, RespT> {
     // Let threadless executor do stuff until there is something for us to check
     executor.waitAndDrainWithTimeout(duration - soFar);
 
-    return false;
+    return System.nanoTime() - start > duration;
   }
 
   /**
