@@ -62,6 +62,7 @@ model {
             target("loongarch_64")
         }
         clang(Clang) {
+	    target("aarch_64") {}
         }
     }
 

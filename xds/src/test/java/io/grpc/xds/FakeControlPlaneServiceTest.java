@@ -70,7 +70,6 @@ import io.grpc.testing.GrpcCleanupRule;
 import io.grpc.testing.protobuf.AberrationType;
 import io.grpc.testing.protobuf.ControlData;
 import io.grpc.testing.protobuf.ExtraResourceRequest;
-import io.grpc.testing.protobuf.ResourceType;
 import io.grpc.testing.protobuf.TriggerTime;
 import io.grpc.testing.protobuf.UpdateControlDataRequest;
 import io.grpc.testing.protobuf.XdsConfig;
@@ -126,7 +125,8 @@ public class FakeControlPlaneServiceTest {
   private Server server =
       grpcCleanup.register(
           InProcessServerBuilder.forName(SERVER_NAME)
-              .directExecutor()
+              .executor(null)
+              // .directExecutor()
               .addService(controlPlaneService)
               .addService(wrapperService)
               .build());
