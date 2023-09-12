@@ -20,6 +20,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
+import io.grpc.CallOptions;
 import io.grpc.Grpc;
 import io.grpc.InsecureChannelCredentials;
 import io.grpc.ManagedChannel;
@@ -28,6 +29,7 @@ import io.grpc.StatusRuntimeException;
 import io.grpc.examples.helloworld.GreeterGrpc;
 import io.grpc.examples.helloworld.HelloReply;
 import io.grpc.examples.helloworld.HelloRequest;
+import io.grpc.stub.ClientCalls;
 import java.io.InputStreamReader;
 import java.util.Map;
 import java.util.concurrent.ForkJoinPool;
@@ -90,7 +92,12 @@ public class RetryingHelloWorldClient {
     HelloReply response = null;
     StatusRuntimeException statusRuntimeException = null;
     try {
-      response = blockingStub.sayHello(request);
+      logger.log(Level.INFO, "Name: {0}, Thread: {1}", new Object[]{name, Thread.currentThread().getName()});
+      CallOptions callOptions = blockingStub.getCallOptions().withDeadlineAfter(1000, TimeUnit.MILLISECONDS);
+      response = ClientCalls.blockingUnaryCall(blockingStub.getChannel(),
+          GreeterGrpc.getSayHelloMethod(), callOptions, request);
+
+      // response = blockingStub.sayHello(request);
     } catch (StatusRuntimeException e) {
       failedRpcs.incrementAndGet();
       statusRuntimeException = e;
@@ -101,7 +108,7 @@ public class RetryingHelloWorldClient {
     if (statusRuntimeException == null) {
       logger.log(Level.INFO,"Greeting: {0}", new Object[]{response.getMessage()});
     } else {
-      logger.log(Level.INFO,"RPC failed: {0}", new Object[]{statusRuntimeException.getStatus()});
+      logger.log(Level.INFO,"RPC failed for name {0}: {1}", new Object[]{name, statusRuntimeException.getStatus()});
     }
   }
 
@@ -128,7 +135,7 @@ public class RetryingHelloWorldClient {
   public static void main(String[] args) throws Exception {
     boolean enableRetries = !Boolean.parseBoolean(System.getenv(ENV_DISABLE_RETRYING));
     final RetryingHelloWorldClient client = new RetryingHelloWorldClient("localhost", 50051, enableRetries);
-    ForkJoinPool executor = new ForkJoinPool();
+    ForkJoinPool executor = new ForkJoinPool(60);
 
     for (int i = 0; i < 50; i++) {
       final String userId = "user" + i;
@@ -140,7 +147,7 @@ public class RetryingHelloWorldClient {
             }
           });
     }
-    executor.awaitQuiescence(100, TimeUnit.SECONDS);
+    executor.awaitQuiescence(30, TimeUnit.SECONDS);
     executor.shutdown();
     client.printSummary();
     client.shutdown();

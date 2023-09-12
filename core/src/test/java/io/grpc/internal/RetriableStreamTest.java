@@ -1261,6 +1261,7 @@ public class RetriableStreamTest {
     fakeClock.forwardTime((long) (INITIAL_BACKOFF_IN_SECONDS * FAKE_RANDOM), TimeUnit.SECONDS);
     verify(mockStream2).start(any(ClientStreamListener.class));
     verify(mockStream2).isReady();
+    fakeClock.forwardTime((long) (INITIAL_BACKOFF_IN_SECONDS * FAKE_RANDOM), TimeUnit.SECONDS);
 
     // bufferLimitExceeded
     bufferSizeTracer.outboundWireSize(PER_RPC_BUFFER_LIMIT - 1);

@@ -46,6 +46,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.annotation.CheckForNull;
 import javax.annotation.CheckReturnValue;
 import javax.annotation.Nullable;
@@ -53,6 +55,8 @@ import javax.annotation.concurrent.GuardedBy;
 
 /** A logical {@link ClientStream} that is retriable. */
 abstract class RetriableStream<ReqT> implements ClientStream {
+  private static final Logger log = Logger.getLogger(RetriableStream.class.getName());
+
   @VisibleForTesting
   static final Metadata.Key<String> GRPC_PREVIOUS_RPC_ATTEMPTS =
       Metadata.Key.of("grpc-previous-rpc-attempts", Metadata.ASCII_STRING_MARSHALLER);
@@ -831,6 +835,8 @@ abstract class RetriableStream<ReqT> implements ClientStream {
   private void safeCloseMasterListener(Status status, RpcProgress progress, Metadata metadata) {
     savedCloseMasterListenerReason = new SavedCloseMasterListenerReason(status, progress,
         metadata);
+    log.log(Level.INFO, "Adding MIN_VALUE.  old value is: {0}, status= {1}",
+        new Object[]{inFlightSubStreams.get(), status.getCode()});
     if (inFlightSubStreams.addAndGet(Integer.MIN_VALUE) == Integer.MIN_VALUE) {
       listenerSerializeExecutor.execute(
           new Runnable() {
@@ -896,6 +902,8 @@ abstract class RetriableStream<ReqT> implements ClientStream {
         closedSubstreamsInsight.append(status.getCode());
       }
 
+      log.log(Level.INFO, "inFlightSubStreams = {0}, stream type = {1}\n",
+          new Object[]{inFlightSubStreams.get(), substream.getClass().getName()});
       if (inFlightSubStreams.decrementAndGet() == Integer.MIN_VALUE) {
         assert savedCloseMasterListenerReason != null;
         listenerSerializeExecutor.execute(
@@ -988,11 +996,12 @@ abstract class RetriableStream<ReqT> implements ClientStream {
           } else {
             RetryPlan retryPlan = makeRetryDecision(status, trailers);
             if (retryPlan.shouldRetry) {
-              // retry
-              Substream newSubstream = createSubstream(substream.previousAttemptCount + 1, false);
-              if (newSubstream == null) {
-                return;
-              }
+              // Substream newSubstream =
+              //   createSubstream(substream.previousAttemptCount + 1, false);
+              // if (newSubstream == null) {
+              //   log.log(Level.FINE, "Failed to create substream");
+              //   return;
+              // }
               // The check state.winningSubstream == null, checking if is not already committed, is
               // racy, but is still safe b/c the retry will also handle committed/cancellation
               FutureCanceller scheduledRetryCopy;
@@ -1002,6 +1011,12 @@ abstract class RetriableStream<ReqT> implements ClientStream {
               class RetryBackoffRunnable implements Runnable {
                 @Override
                 public void run() {
+                  Substream newSubstream =
+                    createSubstream(substream.previousAttemptCount + 1, false);
+                  if (newSubstream == null) {
+                    log.log(Level.FINE, "Failed to create substream");
+                    return;
+                  }
                   callExecutor.execute(
                       new Runnable() {
                         @Override

@@ -98,11 +98,11 @@ public class RetryingHelloWorldServer {
     public void sayHello(HelloRequest request, StreamObserver<HelloReply> responseObserver) {
       int count = retryCounter.incrementAndGet();
       if (random.nextFloat() < UNAVAILABLE_PERCENTAGE) {
-        logger.info("Returning stubbed UNAVAILABLE error. count: " + count);
+        logger.info("Returning stubbed UNAVAILABLE error. count: " + count + " for " + request.getName());
         responseObserver.onError(Status.UNAVAILABLE
             .withDescription("Greeter temporarily unavailable...").asRuntimeException());
       } else {
-        logger.info("Returning successful Hello response, count: " + count);
+        logger.info("Returning successful Hello response, for: " + request.getName());
         HelloReply reply = HelloReply.newBuilder().setMessage("Hello " + request.getName()).build();
         responseObserver.onNext(reply);
         responseObserver.onCompleted();

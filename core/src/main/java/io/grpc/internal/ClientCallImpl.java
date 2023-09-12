@@ -257,6 +257,7 @@ final class ClientCallImpl<ReqT, RespT> extends ClientCall<ReqT, RespT> {
       logIfContextNarrowedTimeout(
           effectiveDeadline, context.getDeadline(), callOptions.getDeadline());
       stream = clientStreamProvider.newStream(method, callOptions, headers, context);
+      log.log(Level.INFO, "Deadline not exceeded, thread: {0}", Thread.currentThread().getName());
     } else {
       ClientStreamTracer[] tracers =
           GrpcUtil.getClientStreamTracers(callOptions, headers, 0, false);
@@ -388,6 +389,8 @@ final class ClientCallImpl<ReqT, RespT> extends ClientCall<ReqT, RespT> {
     private final long remainingNanos;
 
     DeadlineTimer(long remainingNanos) {
+      log.log(Level.INFO, "Create DeadlineTimer with {0}, thread: {1}",
+          new Object[] {remainingNanos, Thread.currentThread().getName()});
       this.remainingNanos = remainingNanos;
     }
 
@@ -412,7 +415,9 @@ final class ClientCallImpl<ReqT, RespT> extends ClientCall<ReqT, RespT> {
       buf.append(String.format(Locale.US, "Name resolution delay %.9f seconds. ",
           nsDelay == null ? 0 : nsDelay / NANO_TO_SECS));
       buf.append(insight);
+      log.log(Level.INFO, "About to cancel, thread: {0}", Thread.currentThread().getName());
       stream.cancel(DEADLINE_EXCEEDED.augmentDescription(buf.toString()));
+      log.log(Level.INFO, "After cancel stream, thread: {0}", Thread.currentThread().getName());
     }
   }
 
