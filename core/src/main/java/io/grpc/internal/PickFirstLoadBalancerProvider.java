@@ -49,6 +49,10 @@ public final class PickFirstLoadBalancerProvider extends LoadBalancerProvider {
     return enableNewPickFirst;
   }
 
+  public static boolean isEnabledHappyEyeballs() {
+    return GrpcUtil.getFlag(GRPC_EXPERIMENTAL_XDS_DUALSTACK_ENDPOINTS, false);
+  }
+
   @Override
   public boolean isAvailable() {
     return true;
