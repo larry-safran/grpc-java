@@ -40,10 +40,6 @@ public final class PickFirstLoadBalancerProvider extends LoadBalancerProvider {
   static boolean enableNewPickFirst =
       GrpcUtil.getFlag("GRPC_EXPERIMENTAL_ENABLE_NEW_PICK_FIRST", false);
 
-  public static boolean isEnabledHappyEyeballs() {
-    return GrpcUtil.getFlag(GRPC_EXPERIMENTAL_XDS_DUALSTACK_ENDPOINTS, false);
-  }
-
   @VisibleForTesting
   public static boolean isEnableNewPickFirst() {
     return enableNewPickFirst;
